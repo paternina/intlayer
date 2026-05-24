@@ -17,8 +17,12 @@ A lightweight, framework-agnostic internationalization runtime for JavaScript an
 
 ## Quick start
 
+```bash
+npm install @paternina/intlayer
+```
+
 ```ts
-import { createI18n } from 'intlayer'
+import { createI18n } from '@paternina/intlayer'
 
 const i18n = createI18n({
   locale: 'en',

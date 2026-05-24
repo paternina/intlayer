@@ -98,6 +98,64 @@ await i18n.setLocale('fr')
 console.log(i18n.t('greet'))
 ```
 
+## Archivos de traducción
+
+Puedes cargar las traducciones desde importaciones JavaScript, TypeScript o JSON siempre que devuelvan un objeto con claves y valores.
+
+```ts
+import enTranslation from './locales/en.json'
+import esTranslation from './locales/es.js'
+
+const i18n = createI18n({
+  locale: 'en',
+  fallbackLocale: 'en',
+  messages: {
+    en: enTranslation,
+    es: esTranslation
+  }
+})
+
+console.log(i18n.t('welcome', { name: 'Jane' }))
+```
+
+Si prefieres carga perezosa, usa un loader que importe el JSON o el módulo cuando sea necesario:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  fallbackLocale: 'en',
+  messages: { en: enTranslation },
+  loaders: {
+    es: async () => {
+      const module = await import('./locales/es.json')
+      return module.default ?? module
+    }
+  }
+})
+```
+
+### Uso tipo resources
+
+También puedes construir un objeto `resources` a partir de archivos de traducción importados:
+
+```ts
+import enTranslation from './locales/en.json'
+import esTranslation from './locales/es.json'
+
+const resources = {
+  en: enTranslation,
+  es: esTranslation
+}
+
+const i18n = createI18n({
+  locale: 'en',
+  fallbackLocale: 'en',
+  messages: resources
+})
+```
+
+El motor no requiere que las traducciones provengan de archivos `.ts` o `.js`: solo necesita un objeto plano con claves de traducción.
+
 ## Formateo nativo
 
 ```ts

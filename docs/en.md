@@ -98,6 +98,64 @@ await i18n.setLocale('fr')
 console.log(i18n.t('greet'))
 ```
 
+## Translation files
+
+You can load translations from JavaScript, TypeScript or JSON imports as long as they provide an object of keys and values.
+
+```ts
+import enTranslation from './locales/en.json'
+import esTranslation from './locales/es.js'
+
+const i18n = createI18n({
+  locale: 'en',
+  fallbackLocale: 'en',
+  messages: {
+    en: enTranslation,
+    es: esTranslation
+  }
+})
+
+console.log(i18n.t('welcome', { name: 'Jane' }))
+```
+
+If you prefer lazy loading, use a loader that imports the JSON or module when needed:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  fallbackLocale: 'en',
+  messages: { en: enTranslation },
+  loaders: {
+    es: async () => {
+      const module = await import('./locales/es.json')
+      return module.default ?? module
+    }
+  }
+})
+```
+
+### Resources-style usage
+
+You can also build a simple `resources` object from imported translation files:
+
+```ts
+import enTranslation from './locales/en.json'
+import esTranslation from './locales/es.json'
+
+const resources = {
+  en: enTranslation,
+  es: esTranslation
+}
+
+const i18n = createI18n({
+  locale: 'en',
+  fallbackLocale: 'en',
+  messages: resources
+})
+```
+
+The engine does not require the translations to come from `.ts` or `.js` files — it only needs a plain object with translation keys.
+
 ## Native formatting
 
 ```ts
