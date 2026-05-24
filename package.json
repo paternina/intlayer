@@ -18,7 +18,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/paternina/intlayer.git"
+    "url": "git+https://github.com/paternina/intlayer.git"
   },
   "homepage": "https://github.com/paternina/intlayer#readme",
   "license": "MIT",
