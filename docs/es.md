@@ -36,8 +36,8 @@ console.log(isRTL('ar'))
 - `i18n.t(key, values)`
 - `i18n.setLocale(locale)`
 - `i18n.getLocale()`
-- `i18n.getFallbackLocale()` // devuelve string | string[]
-- `i18n.getDirection()` // devuelve 'rtl' | 'ltr'
+- `i18n.getFallbackLocale()`
+- `i18n.getDirection()`
 - `i18n.subscribe(listener)`
 - `i18n.destroy()`
 - `i18n.number(value, options)`
