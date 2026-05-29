@@ -1,15 +1,16 @@
 {
   "name": "@paternina/intlayer",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "type": "module",
   "private": false,
   "description": "A tiny universal internationalization engine for JavaScript and TypeScript.",
   "main": "dist/index.cjs",
-  "module": "dist/index.mjs",
+  "module": "dist/index.js",
   "browser": "dist/index.global.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.mjs",
+      "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     }
   },

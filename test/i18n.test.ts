@@ -104,4 +104,25 @@ describe('intlayer', () => {
     expect(isRTL('en-US')).toBe(false)
     expect(isRTL('he-IL')).toBe(true)
   })
+
+  it('returns fallback locale as provided (string or array)', () => {
+    // string fallback
+    const i18n1 = createI18n({ locale: 'en', fallbackLocale: 'fr', messages: { en: {} } })
+    expect(i18n1.getFallbackLocale()).toBe('fr')
+    // array fallback
+    const i18n2 = createI18n({ locale: 'en', fallbackLocale: ['fr', 'de'], messages: { en: {} } })
+    expect(i18n2.getFallbackLocale()).toEqual(['fr', 'de'])
+    // undefined fallback (defaults to locale)
+    const i18n3 = createI18n({ locale: 'en', messages: { en: {} } })
+    expect(i18n3.getFallbackLocale()).toBe('en')
+  })
+
+  it('getDirection returns rtl for arabic and ltr for english', () => {
+    const i18n = createI18n({ locale: 'en', messages: { en: {} } })
+    expect(i18n.getDirection()).toBe('ltr')
+    // change locale to arabic
+    // Note: setLocale is async, but we can test sync by setting locale directly? We'll just test with a new instance.
+    const i18nAr = createI18n({ locale: 'ar', messages: { ar: {} } })
+    expect(i18nAr.getDirection()).toBe('rtl')
+  })
 })

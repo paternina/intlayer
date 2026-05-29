@@ -15,7 +15,7 @@ import { createI18n, isRTL } from '@paternina/intlayer'
 
 const i18n = createI18n({
   locale: 'en',
-  fallbackLocale: 'en',
+  fallbackLocale: ['en'], // puede ser string o string[]
   messages: {
     en: {
       welcome: 'Hello {name}',
@@ -26,6 +26,7 @@ const i18n = createI18n({
 
 console.log(i18n.t('welcome', { name: 'Jane' }))
 console.log(i18n.t('items', { count: 2 }))
+console.log(i18n.getDirection()) // 'ltr' o 'rtl'
 console.log(isRTL('ar'))
 ```
 
@@ -35,7 +36,8 @@ console.log(isRTL('ar'))
 - `i18n.t(key, values)`
 - `i18n.setLocale(locale)`
 - `i18n.getLocale()`
-- `i18n.getFallbackLocale()`
+- `i18n.getFallbackLocale()` // devuelve string | string[]
+- `i18n.getDirection()` // devuelve 'rtl' | 'ltr'
 - `i18n.subscribe(listener)`
 - `i18n.destroy()`
 - `i18n.number(value, options)`
@@ -64,7 +66,7 @@ console.log(i18n.t('items', { count: 5 })) // 5 items
 ```ts
 const i18n = createI18n({
   locale: 'en',
-  fallbackLocale: 'en',
+  fallbackLocale: ['en'],
   messages: {
     en: { hello: 'Hello' },
     es: { hello: 'Hola' }
@@ -87,7 +89,7 @@ Agrega `loaders` para cargar mensajes solo cuando se necesiten:
 ```ts
 const i18n = createI18n({
   locale: 'en',
-  fallbackLocale: 'en',
+  fallbackLocale: ['en'],
   messages: { en: { greet: 'Hello' } },
   loaders: {
     fr: async () => ({ greet: 'Salut' })
@@ -108,7 +110,7 @@ import esTranslation from './locales/es.js'
 
 const i18n = createI18n({
   locale: 'en',
-  fallbackLocale: 'en',
+  fallbackLocale: ['en'],
   messages: {
     en: enTranslation,
     es: esTranslation
@@ -123,7 +125,7 @@ Si prefieres carga perezosa, usa un loader que importe el JSON o el módulo cuan
 ```ts
 const i18n = createI18n({
   locale: 'en',
-  fallbackLocale: 'en',
+  fallbackLocale: ['en'],
   messages: { en: enTranslation },
   loaders: {
     es: async () => {
@@ -149,7 +151,7 @@ const resources = {
 
 const i18n = createI18n({
   locale: 'en',
-  fallbackLocale: 'en',
+  fallbackLocale: ['en'],
   messages: resources
 })
 ```

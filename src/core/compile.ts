@@ -1,4 +1,5 @@
 import { Messages } from '../types'
+import { LRUCache } from '../utils/lru'
 
 type Segment = TextSegment | VariableSegment | PluralSegment
 
@@ -10,7 +11,8 @@ type PluralSegment = {
   options: Record<string, Segment[]>
 }
 
-const compileCache = new Map<string, (data?: Record<string, unknown>, locale?: string) => string>()
+const compileCache = new LRUCache<string, (data?: Record<string, unknown>, locale?: string) => string>(1000)
+const pluralRulesCache = new LRUCache<string, Intl.PluralRules>(1000)
 
 export function compileMessage(message: string): (data?: Record<string, unknown>, locale?: string) => string {
   const cached = compileCache.get(message)
@@ -50,8 +52,12 @@ function renderSegments(
       if (segment.type === 'plural') {
         const rawValue = data[segment.value]
         const count = Number(rawValue ?? 0)
-        const rule = new Intl.PluralRules(locale).select(count)
-        const option = segment.options[rule] ?? segment.options.other
+        let rule = pluralRulesCache.get(locale)
+        if (!rule) {
+          rule = new Intl.PluralRules(locale)
+          pluralRulesCache.set(locale, rule)
+        }
+        const option = segment.options[rule.select(count)] ?? segment.options.other
 
         if (!option) {
           return ''
@@ -121,8 +127,7 @@ function findMatchingBrace(value: string, start: number) {
 }
 
 function isPluralBlock(content: string) {
-  const parts = content.split(',').map((part) => part.trim())
-  return parts.length >= 2 && parts[1] === 'plural'
+  return /^\w+,\s*plural\b/.test(content)
 }
 
 function parsePlural(content: string): PluralSegment {

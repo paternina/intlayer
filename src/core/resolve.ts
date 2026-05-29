@@ -1,4 +1,6 @@
-const resolverCache = new Map<string, (target: unknown) => unknown>()
+import { LRUCache } from '../utils/lru'
+
+const resolverCache = new LRUCache<string, (target: unknown) => unknown>(1000)
 
 export function resolve(path: string, obj: unknown): unknown {
   if (!path) {
