@@ -17,7 +17,7 @@ test('greets user with translated message', () => {
       }
       return key
     })
-  })
+  }
 
   const result = greetUser(mockI18n, 'Alice')
   expect(result).toBe('Message: Hello Alice')
