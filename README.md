@@ -61,6 +61,9 @@ console.log(i18n.getDirection()) // 'ltr' or 'rtl'
 - `i18n.mergeMessages(messages)` — merge translations at runtime
 - `i18n.has(key)` — check if translation exists
 - `isRTL(locale)`
+- `setRTL(locales)` — replace the RTL language list
+- `addRTL(...locales)` — add locales to RTL list
+- `removeRTL(...locales)` — remove locales from RTL list
 
 ### Options
 

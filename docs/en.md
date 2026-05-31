@@ -212,6 +212,23 @@ i18n.t('hello')     // ✅ OK - autocompleted
 i18n.t('missing')   // ❌ TypeScript error
 ```
 
+### RTL language configuration
+
+The RTL language list is configurable at runtime:
+
+```ts
+import { setRTL, addRTL, removeRTL } from '@paternina/intlayer'
+
+// Replace the entire list
+setRTL(['ar', 'he'])
+
+// Add additional RTL languages
+addRTL('ja', 'zh')
+
+// Remove languages from RTL list
+removeRTL('yi')
+```
+
 ## Translation files
 
 You can load translations from JavaScript, TypeScript or JSON imports as long as they provide an object of keys and values.

@@ -188,7 +188,16 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
     }
   }
 
-  function translate(key: T, values: Record<string, unknown> = {}): string {
+  function translate(key: T, secondArg?: Record<string, unknown> | string): string {
+    let values: Record<string, unknown> = {}
+    let defaultValue: string | undefined
+    
+    if (typeof secondArg === 'string') {
+      defaultValue = secondArg
+    } else {
+      values = secondArg ?? {}
+    }
+    
     const locales = [currentLocale, ...fallbackLocale]
     let source: string | undefined
     let sourceLocale = currentLocale
@@ -206,7 +215,7 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
       if (warnOnMissingKey) {
         console.warn(`[intlayer] Missing translation key: "${key}" for locale "${currentLocale}"`)
       }
-      return key
+      return defaultValue ?? key
     }
 
     return compileMessage(source, pluralRulesCache)(values, sourceLocale)

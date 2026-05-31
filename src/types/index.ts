@@ -15,8 +15,13 @@ export interface I18nOptions {
   loaderTimeout?: number
 }
 
+export type TranslateFunction<T extends string = string> = {
+  (key: T, values?: Record<string, unknown>): string
+  (key: T, defaultValue: string): string
+}
+
 export interface I18nInstance<T extends string = string> {
-  t: (key: T, values?: Record<string, unknown>) => string
+  t: TranslateFunction<T>
   setLocale: (locale: string) => Promise<void>
   getLocale: () => string
   getFallbackLocale: () => string | string[]

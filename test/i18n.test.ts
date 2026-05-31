@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createI18n } from '../src/index'
-import { isRTL } from '../src/utils/rtl'
+import { isRTL, setRTL, addRTL, removeRTL } from '../src/utils/rtl'
 
 describe('intlayer', () => {
   it('resolves nested translation keys', () => {
@@ -125,6 +125,27 @@ describe('intlayer', () => {
     expect(isRTL('dv')).toBe(true)
     expect(isRTL('ku')).toBe(true)
     expect(isRTL('yi')).toBe(true)
+  })
+
+  it('allows configuring RTL languages', async () => {
+    const { setRTL, addRTL, removeRTL } = await import('../src/utils/rtl')
+    
+    // Guardar estado original
+    const originalAr = isRTL('ar')
+    expect(originalAr).toBe(true)
+    
+    // Reemplazar lista
+    setRTL(['ja', 'zh'])
+    expect(isRTL('ar')).toBe(false)
+    expect(isRTL('ja')).toBe(true)
+    
+    // Agregar
+    addRTL('ar')
+    expect(isRTL('ar')).toBe(true)
+    
+    // Remover
+    removeRTL('ar')
+    expect(isRTL('ar')).toBe(false)
   })
 
   it('warns on missing translation key when warnOnMissingKey is enabled', () => {
@@ -284,5 +305,23 @@ describe('intlayer', () => {
     expect(i18n.getLocale()).toBe('en')
     const t = i18n.t('hello')
     expect(t).toBe('Hello')
+  })
+
+  it('t returns translation when exists', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { hello: 'Hello' }
+    })
+
+    expect(i18n.t('hello')).toBe('Hello')
+  })
+
+  it('t returns defaultValue when key missing', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { hello: 'Hello' }
+    })
+
+    expect(i18n.t('missing', 'Default')).toBe('Default')
   })
 })
