@@ -1,6 +1,6 @@
 import { compileMessage } from '../core/compile'
 import { resolve } from '../core/resolve'
-import { isRTL } from '../browser/rtl'
+import { isRTL } from '../utils/rtl'
 import type { I18nInstance, I18nOptions, LoaderMap, Messages } from '../types'
 import { LRUCache } from '../utils/lru'
 

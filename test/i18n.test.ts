@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createI18n } from '../src/index'
-import { isRTL } from '../src/browser/rtl'
+import { isRTL } from '../src/utils/rtl'
 
 describe('intlayer', () => {
   it('resolves nested translation keys', () => {
