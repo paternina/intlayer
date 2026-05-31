@@ -6,17 +6,17 @@ export type LocaleLoader = () => Promise<Messages>
 
 export type LoaderMap = Record<string, LocaleLoader>
 
-export interface I18nOptions<M extends Messages = Messages> {
+export interface I18nOptions {
   locale: string
   fallbackLocale?: string | string[]
-  messages?: M | Record<string, M>
+  messages?: Messages | Record<string, Messages>
   loaders?: LoaderMap
   warnOnMissingKey?: boolean
   loaderTimeout?: number
 }
 
-export interface I18nInstance<M extends Messages = Messages> {
-  t: (key: string, values?: Record<string, unknown>) => string
+export interface I18nInstance<T extends string = string> {
+  t: (key: T, values?: Record<string, unknown>) => string
   setLocale: (locale: string) => Promise<void>
   getLocale: () => string
   getFallbackLocale: () => string | string[]
@@ -32,5 +32,5 @@ export interface I18nInstance<M extends Messages = Messages> {
     locale?: string
   ) => string
   mergeMessages: (messages: Messages | Record<string, Messages>) => void
-  has: (key: string) => boolean
+  has: (key: T) => boolean
 }

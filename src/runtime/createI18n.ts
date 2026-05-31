@@ -55,7 +55,7 @@ function normalizeFallback(raw: string | string[], primary: string): string[] {
   return result.length > 0 ? result : [primary]
 }
 
-export function createI18n<M extends Messages = Messages>(options: I18nOptions<M>): I18nInstance<M> {
+export function createI18n<T extends string = string>(options: I18nOptions): I18nInstance<T> {
   const locale = options.locale
   const fallbackLocaleRaw = options.fallbackLocale ?? locale
   const fallbackLocale = normalizeFallback(fallbackLocaleRaw, locale)
@@ -188,7 +188,7 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
     }
   }
 
-  function translate(key: string, values: Record<string, unknown> = {}): string {
+  function translate(key: T, values: Record<string, unknown> = {}): string {
     const locales = [currentLocale, ...fallbackLocale]
     let source: string | undefined
     let sourceLocale = currentLocale
@@ -212,7 +212,7 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
     return compileMessage(source, pluralRulesCache)(values, sourceLocale)
   }
 
-  function hasTranslation(key: string): boolean {
+  function hasTranslation(key: T): boolean {
     const locales = [currentLocale, ...fallbackLocale]
     for (const locale of locales) {
       const messages = getMessagesFor(locale)
@@ -334,7 +334,7 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
     number: formatNumber,
     date: formatDate,
     relativeTime: formatRelativeTime,
-    mergeMessages: mergeMessages as I18nInstance<M>['mergeMessages'],
+    mergeMessages,
     has: hasTranslation
   }
 }
