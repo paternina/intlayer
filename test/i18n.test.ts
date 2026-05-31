@@ -210,4 +210,79 @@ describe('intlayer', () => {
     expect(warn.mock.calls[0]?.[0]).toContain('Failed to load locale "fr"')
     warn.mockRestore()
   })
+
+  it('has() returns true for existing translations in current locale', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: {
+        hello: 'Hello'
+      }
+    })
+
+    expect(i18n.has('hello')).toBe(true)
+    expect(i18n.has('missing')).toBe(false)
+  })
+
+  it('has() returns true for translations in fallback locale', () => {
+    const i18n = createI18n({
+      locale: 'es',
+      fallbackLocale: 'en',
+      messages: {
+        en: { hello: 'Hello' }
+      }
+    })
+
+    expect(i18n.has('hello')).toBe(true)
+    expect(i18n.has('missing')).toBe(false)
+  })
+
+  it('pluralization uses correct locale from which translation was found', () => {
+    const i18n = createI18n({
+      locale: 'de',
+      fallbackLocale: 'en',
+      messages: {
+        en: { items: '{count, plural, one {# item} other {# items}}' }
+      }
+    })
+
+    expect(i18n.t('items', { count: 1 })).toBe('1 item')
+    expect(i18n.t('items', { count: 3 })).toBe('3 items')
+  })
+
+  it('pluralization uses Russian plural rules for Russian locale', () => {
+    const i18n = createI18n({
+      locale: 'ru',
+      fallbackLocale: 'en',
+      messages: {
+        ru: {
+          items: '{count, plural, one {# товар} few {# товара} many {# товаров} other {# товара}}'
+        }
+      }
+    })
+
+    expect(i18n.t('items', { count: 1 })).toBe('1 товар')
+    expect(i18n.t('items', { count: 2 })).toBe('2 товара')
+    expect(i18n.t('items', { count: 5 })).toBe('5 товаров')
+    expect(i18n.t('items', { count: 0 })).toBe('0 товаров')
+  })
+
+  it('destroy clears instance caches to prevent memory leaks', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: {
+        hello: 'Hello',
+        items: '{count, plural, one {# item} other {# items}}'
+      }
+    })
+
+    i18n.t('hello')
+    i18n.t('items', { count: 1 })
+    i18n.number(123)
+
+    i18n.destroy()
+
+    expect(i18n.getLocale()).toBe('en')
+    const t = i18n.t('hello')
+    expect(t).toBe('Hello')
+  })
 })

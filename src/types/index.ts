@@ -32,4 +32,5 @@ export interface I18nInstance<M extends Messages = Messages> {
     locale?: string
   ) => string
   mergeMessages: (messages: Messages | Record<string, Messages>) => void
+  has: (key: string) => boolean
 }

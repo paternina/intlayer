@@ -44,6 +44,7 @@ console.log(isRTL('ar'))
 - `i18n.date(value, options)`
 - `i18n.relativeTime(value, unit, options)`
 - `i18n.mergeMessages(messages)` — fusiona traducciones en runtime
+- `i18n.has(key)` — verifica si existe una traducción
 - `isRTL(locale)`
 
 ### Opciones
@@ -71,6 +72,24 @@ const i18n = createI18n({
 
 console.log(i18n.t('items', { count: 1 })) // 1 item
 console.log(i18n.t('items', { count: 5 })) // 5 items
+```
+
+Las reglas de plural se aplican automáticamente según el locale donde se encontró la traducción (no el locale activo):
+
+```ts
+const i18n = createI18n({
+  locale: 'ru',
+  fallbackLocale: 'en',
+  messages: {
+    en: { items: '{count, plural, one {# item} other {# items}}' },
+    ru: { items: '{count, plural, one {# товар} few {# товара} many {# товаров} other {# товара}}' }
+  }
+})
+
+// Usa reglas de plural ruso cuando el locale activo es ruso
+console.log(i18n.t('items', { count: 1 })) // 1 товар
+console.log(i18n.t('items', { count: 2 })) // 2 товара
+console.log(i18n.t('items', { count: 5 })) // 5 товаров
 ```
 
 ## Cambio de locale y suscripciones
@@ -155,6 +174,21 @@ const i18n = createI18n({
 })
 
 await i18n.setLocale('fr')
+```
+
+### Verificar existencia de traducciones
+
+Usa `has()` para verificar si una clave de traducción existe en el locale activo o la cadena de fallback:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: { en: { hello: 'Hello', missing: undefined } }
+})
+
+i18n.has('hello') // true
+i18n.has('missing') // false
+i18n.has('nonexistent') // false
 ```
 
 ## Archivos de traducción

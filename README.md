@@ -7,7 +7,7 @@ A lightweight, framework-agnostic internationalization runtime for JavaScript an
 - Nested translation lookup
 - Cached path resolvers (LRU cache prevents memory leaks)
 - Interpolation templates
-- ICU-style plural support
+- ICU-style plural support with locale-aware rules
 - Locale switching with subscriptions
 - Lazy locale loading with cache
 - Fallback locale resolution with automatic base-locale fallback (e.g. `en-US` → `en`) and deduplication
@@ -18,6 +18,7 @@ A lightweight, framework-agnostic internationalization runtime for JavaScript an
 - Runtime message merging (`mergeMessages`)
 - Optional missing-key warnings during development (`warnOnMissingKey`)
 - Loader timeout support (`loaderTimeout`) to prevent hangs on slow networks
+- Instance-level caches for memory isolation
 
 ## Quick start
 
@@ -58,6 +59,7 @@ console.log(i18n.getDirection()) // 'ltr' or 'rtl'
 - `i18n.date(value, options)`
 - `i18n.relativeTime(value, unit, options)`
 - `i18n.mergeMessages(messages)` — merge translations at runtime
+- `i18n.has(key)` — check if translation exists
 - `isRTL(locale)`
 
 ### Options
@@ -154,6 +156,20 @@ const i18n = createI18n({
 })
 
 await i18n.setLocale('fr')
+```
+
+### Check if translation exists
+
+Use `has()` to verify if a translation key exists:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: { en: { hello: 'Hello' } }
+})
+
+i18n.has('hello') // true
+i18n.has('missing') // false
 ```
 
 ## Development

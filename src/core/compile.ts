@@ -11,9 +11,9 @@ type PluralSegment = {
 }
 
 const compileCache = new LRUCache<string, (data?: Record<string, unknown>, locale?: string) => string>(1000)
-const pluralRulesCache = new LRUCache<string, Intl.PluralRules>(1000)
+const defaultPluralRulesCache = new LRUCache<string, Intl.PluralRules>(1000)
 
-export function compileMessage(message: string): (data?: Record<string, unknown>, locale?: string) => string {
+export function compileMessage(message: string, pluralRulesCache?: LRUCache<string, Intl.PluralRules>): (data?: Record<string, unknown>, locale?: string) => string {
   const cached = compileCache.get(message)
 
   if (cached) {
@@ -21,7 +21,8 @@ export function compileMessage(message: string): (data?: Record<string, unknown>
   }
 
   const segments = parseTemplate(message)
-  const fn = (data: Record<string, unknown> = {}, locale = 'en'): string => renderSegments(segments, data, locale)
+  const effectiveCache = pluralRulesCache ?? defaultPluralRulesCache
+  const fn = (data?: Record<string, unknown>, locale?: string): string => renderSegments(segments, data ?? {}, locale ?? 'en', effectiveCache)
 
   compileCache.set(message, fn)
   return fn
@@ -31,6 +32,7 @@ function renderSegments(
   segments: Segment[],
   data: Record<string, unknown>,
   locale: string,
+  pluralRulesCache?: LRUCache<string, Intl.PluralRules>,
   pluralCount?: number
 ): string {
   return segments
@@ -51,10 +53,11 @@ function renderSegments(
       if (segment.type === 'plural') {
         const rawValue = data[segment.value]
         const count = Number(rawValue ?? 0)
-        let rule = pluralRulesCache.get(locale)
+        const effectiveCache = pluralRulesCache ?? defaultPluralRulesCache
+        let rule = effectiveCache.get(locale)
         if (!rule) {
           rule = new Intl.PluralRules(locale)
-          pluralRulesCache.set(locale, rule)
+          effectiveCache.set(locale, rule)
         }
         const option = segment.options[rule.select(count)] ?? segment.options.other
 
@@ -62,7 +65,7 @@ function renderSegments(
           return ''
         }
 
-        return renderSegments(option, data, locale, count)
+        return renderSegments(option, data, locale, effectiveCache, count)
       }
 
       return ''
