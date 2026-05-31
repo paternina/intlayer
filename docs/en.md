@@ -191,6 +191,27 @@ i18n.has('missing') // false
 i18n.has('nonexistent') // false
 ```
 
+### Optional TypeScript key safety
+
+For better autocomplete and compile-time checking, provide your translation keys:
+
+```ts
+type AppKeys = 'hello' | 'items' | 'greeting'
+
+const i18n = createI18n<AppKeys>({
+  locale: 'en',
+  messages: {
+    en: {
+      hello: 'Hello',
+      items: '{count, plural, one {# item} other {# items}}'
+    }
+  }
+})
+
+i18n.t('hello')     // ✅ OK - autocompleted
+i18n.t('missing')   // ❌ TypeScript error
+```
+
 ## Translation files
 
 You can load translations from JavaScript, TypeScript or JSON imports as long as they provide an object of keys and values.

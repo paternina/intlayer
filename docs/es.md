@@ -191,6 +191,27 @@ i18n.has('missing') // false
 i18n.has('nonexistent') // false
 ```
 
+### Tipado opcional de seguridad en TypeScript
+
+Para autocompletado y verificación en tiempo de compilación, proporciona tus claves de traducción:
+
+```ts
+type AppKeys = 'hello' | 'items' | 'greeting'
+
+const i18n = createI18n<AppKeys>({
+  locale: 'en',
+  messages: {
+    en: {
+      hello: 'Hello',
+      items: '{count, plural, one {# item} other {# items}}'
+    }
+  }
+})
+
+i18n.t('hello')     // ✅ OK - autocompletado
+i18n.t('missing')   // ❌ Error de TypeScript
+```
+
 ## Archivos de traducción
 
 Puedes cargar las traducciones desde importaciones JavaScript, TypeScript o JSON siempre que devuelvan un objeto con claves y valores.
