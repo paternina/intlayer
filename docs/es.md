@@ -43,7 +43,19 @@ console.log(isRTL('ar'))
 - `i18n.number(value, options)`
 - `i18n.date(value, options)`
 - `i18n.relativeTime(value, unit, options)`
+- `i18n.mergeMessages(messages)` — fusiona traducciones en runtime
 - `isRTL(locale)`
+
+### Opciones
+
+| Opción | Tipo | Default | Descripción |
+|--------|------|---------|-------------|
+| `locale` | `string` | — | Locale activo |
+| `fallbackLocale` | `string \| string[]` | `locale` | Cadena de fallback (deduplicada, base locale auto-agregada) |
+| `messages` | `Messages \| Record<string, Messages>` | — | Traducciones iniciales |
+| `loaders` | `Record<string, () => Promise<Messages>>` | — | Carga perezosa por locale |
+| `warnOnMissingKey` | `boolean` | `false` | Log de keys faltantes en consola (dev) |
+| `loaderTimeout` | `number` (ms) | `0` (disabled) | Timeout para loaders lentos |
 
 ## Mensajes y pluralización
 
@@ -98,6 +110,51 @@ const i18n = createI18n({
 
 await i18n.setLocale('fr')
 console.log(i18n.t('greet'))
+```
+
+### Fusión de traducciones en runtime
+
+Usa `mergeMessages` para inyectar o extender traducciones después de la inicialización:
+
+```ts
+i18n.mergeMessages({
+  common: { save: 'Guardar' }
+})
+
+// o fusionar en un locale existente
+i18n.mergeMessages({
+  en: { newKey: 'Nueva traducción' }
+})
+```
+
+### Advertencias en desarrollo
+
+Habilita `warnOnMissingKey` para loguear keys faltantes durante desarrollo:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  warnOnMissingKey: true,
+  messages: { en: { hello: 'Hello' } }
+})
+
+i18n.t('missing') // console.warn: [intlayer] Missing translation key: "missing"
+```
+
+### Timeout de loaders
+
+Usa `loaderTimeout` para evitar cuelgues con loaders lentos:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  loaders: {
+    fr: async () => ({ hello: 'Bonjour' })
+  },
+  loaderTimeout: 5000 // 5 segundos
+})
+
+await i18n.setLocale('fr')
 ```
 
 ## Archivos de traducción

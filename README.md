@@ -10,11 +10,14 @@ A lightweight, framework-agnostic internationalization runtime for JavaScript an
 - ICU-style plural support
 - Locale switching with subscriptions
 - Lazy locale loading with cache
-- Fallback locale resolution (supports string or array of locales)
+- Fallback locale resolution with automatic base-locale fallback (e.g. `en-US` → `en`) and deduplication
 - RTL locale utility (`getDirection()` method)
 - Native `Intl` formatting APIs with caching
 - ESM + CJS support
 - Performance optimizations for high-frequency translation scenarios
+- Runtime message merging (`mergeMessages`)
+- Optional missing-key warnings during development (`warnOnMissingKey`)
+- Loader timeout support (`loaderTimeout`) to prevent hangs on slow networks
 
 ## Quick start
 
@@ -54,7 +57,19 @@ console.log(i18n.getDirection()) // 'ltr' or 'rtl'
 - `i18n.number(value, options)`
 - `i18n.date(value, options)`
 - `i18n.relativeTime(value, unit, options)`
+- `i18n.mergeMessages(messages)` — merge translations at runtime
 - `isRTL(locale)`
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `locale` | `string` | — | Active locale |
+| `fallbackLocale` | `string \| string[]` | `locale` | Fallback chain (deduped, base locale auto-appended) |
+| `messages` | `Messages \| Record<string, Messages>` | — | Initial translations |
+| `loaders` | `Record<string, () => Promise<Messages>>` | — | Lazy locale loaders |
+| `warnOnMissingKey` | `boolean` | `false` | Log missing keys to console (dev) |
+| `loaderTimeout` | `number` (ms) | `0` (disabled) | Timeout for slow loaders |
 
 ## Examples
 
@@ -94,6 +109,51 @@ const i18n = createI18n({
 })
 
 console.log(i18n.t('hello'))
+```
+
+### Runtime message merging
+
+Use `mergeMessages` to inject or extend translations after initialization:
+
+```ts
+i18n.mergeMessages({
+  common: { save: 'Save' }
+})
+
+// or merge into an existing locale
+i18n.mergeMessages({
+  en: { newKey: 'New translation' }
+})
+```
+
+### Development warnings
+
+Enable `warnOnMissingKey` to log missing keys during development:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  warnOnMissingKey: true,
+  messages: { en: { hello: 'Hello' } }
+})
+
+i18n.t('missing') // console.warn: [intlayer] Missing translation key: "missing"
+```
+
+### Loader timeout
+
+Use `loaderTimeout` to avoid hanging on slow locale loaders:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  loaders: {
+    fr: async () => ({ hello: 'Bonjour' })
+  },
+  loaderTimeout: 5000 // 5 seconds
+})
+
+await i18n.setLocale('fr')
 ```
 
 ## Development
