@@ -1,6 +1,6 @@
 {
   "name": "@paternina/intlayer",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "private": false,
   "description": "A tiny universal internationalization engine for JavaScript and TypeScript.",
