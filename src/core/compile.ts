@@ -1,4 +1,3 @@
-import { Messages } from '../types'
 import { LRUCache } from '../utils/lru'
 
 type Segment = TextSegment | VariableSegment | PluralSegment
@@ -131,33 +130,45 @@ function isPluralBlock(content: string) {
 }
 
 function parsePlural(content: string): PluralSegment {
-  const parts = content.split(',')
-  const value = (parts[0] ?? '').trim()
-  const rest = parts.slice(2)
-  const body = rest.join(',').trim()
+  const firstComma = content.indexOf(',')
+  const value = firstComma >= 0 ? content.slice(0, firstComma).trim() : ''
+  const rest = firstComma >= 0 ? content.slice(firstComma + 1) : ''
+  const trimmedRest = rest.trim()
+
+  if (!trimmedRest.startsWith('plural')) {
+    return { type: 'plural', value, options: {} }
+  }
+
+  let body = trimmedRest.slice('plural'.length).trim()
+  if (body.startsWith(',')) {
+    body = body.slice(1).trimStart()
+  }
   const options: Record<string, Segment[]> = {}
+  const validCategories = new Set(['zero', 'one', 'two', 'few', 'many', 'other'])
   let cursor = 0
 
   while (cursor < body.length) {
-    const chunk = body.slice(cursor)
-    const categoryMatch = chunk.trimStart().match(/^(\w+)/)
+    cursor = skipWhitespace(body, cursor)
+    if (cursor >= body.length) {
+      break
+    }
+
+    const categoryMatch = body.slice(cursor).match(/^(\w+)/)
 
     if (!categoryMatch || !categoryMatch[1]) {
       break
     }
 
     const category = categoryMatch[1]
-    const offset = body.indexOf(category, cursor)
 
-    if (offset === -1) {
+    if (!validCategories.has(category)) {
       break
     }
 
-    cursor = offset + category.length
+    cursor += categoryMatch[0].length
     cursor = skipWhitespace(body, cursor)
 
-    const nextChar = body[cursor]
-    if (nextChar !== '{') {
+    if (cursor >= body.length || body[cursor] !== '{') {
       break
     }
 

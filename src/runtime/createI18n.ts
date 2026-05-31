@@ -21,7 +21,7 @@ function isLocaleMap(value: unknown): value is Record<string, Messages> {
   )
 }
 
-export function createI18n(options: I18nOptions): I18nInstance {
+export function createI18n<M extends Messages = Messages>(options: I18nOptions<M>): I18nInstance<M> {
   const locale = options.locale
   const fallbackLocaleRaw = options.fallbackLocale ?? locale
   const fallbackLocale = Array.isArray(fallbackLocaleRaw)
