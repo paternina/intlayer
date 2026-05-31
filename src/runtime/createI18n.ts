@@ -6,6 +6,32 @@ import { LRUCache } from '../utils/lru'
 
 const localeKey = /^[a-z]{2,3}(?:[-_][A-Za-z0-9]+)?$/
 
+function buildIntlCacheKey(locale: string, options?: Record<string, unknown> | Intl.NumberFormatOptions | Intl.DateTimeFormatOptions | Intl.RelativeTimeFormatOptions): string {
+  if (!options || Object.keys(options as Record<string, unknown>).length === 0) {
+    return locale
+  }
+  const keys = Object.keys(options as Record<string, unknown>).sort()
+  const parts: string[] = [locale]
+  for (const key of keys) {
+    parts.push(`${key}=${(options as Record<string, unknown>)[key]}`)
+  }
+  return parts.join('&')
+}
+
+function deepMerge(target: Messages, source: Messages): Messages {
+  const result: Messages = { ...target }
+  for (const key of Object.keys(source)) {
+    const sourceValue = source[key]
+    const targetValue = result[key]
+    if (sourceValue && typeof sourceValue === 'object' && !Array.isArray(sourceValue) && targetValue && typeof targetValue === 'object' && !Array.isArray(targetValue)) {
+      result[key] = deepMerge(targetValue as Messages, sourceValue as Messages)
+    } else {
+      result[key] = sourceValue as string | Messages
+    }
+  }
+  return result
+}
+
 function normalizeFallback(raw: string | string[], primary: string): string[] {
   const items = Array.isArray(raw) ? [...raw] : [raw]
   const primaryLower = primary.toLowerCase()
@@ -26,7 +52,7 @@ function normalizeFallback(raw: string | string[], primary: string): string[] {
     result.push(base)
   }
 
-  return result
+  return result.length > 0 ? result : [primary]
 }
 
 // Caches for Intl formatters
@@ -58,8 +84,9 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
   let destroyed = false
 
   const initialMessages = options.messages ?? {}
+  const isInitialLocaleMap = isLocaleMap(initialMessages)
 
-  if (isLocaleMap(initialMessages)) {
+  if (isInitialLocaleMap) {
     for (const [name, messages] of Object.entries(initialMessages)) {
       if (typeof messages === 'object' && messages !== null) {
         loaded.set(name, messages)
@@ -71,16 +98,13 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
 
   function getMessagesFor(targetLocale: string): Messages | undefined {
     const loadedMessages = loaded.get(targetLocale)
-
     if (loadedMessages) {
       return loadedMessages
     }
-
-    if (isLocaleMap(initialMessages)) {
+    if (isInitialLocaleMap) {
       const map = initialMessages as Record<string, Messages>
       return map[targetLocale]
     }
-
     return undefined
   }
 
@@ -178,6 +202,9 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
 
     if (loaders[newLocale] && !loaded.has(newLocale)) {
       await loadLocale(newLocale)
+      if (!loaded.has(newLocale)) {
+        return
+      }
     }
 
     currentLocale = newLocale
@@ -188,9 +215,9 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
     return currentLocale
   }
 
-   function getFallbackLocale() {
-     return fallbackLocaleRaw
-   }
+    function getFallbackLocale() {
+      return fallbackLocale
+    }
 
   function subscribe(listener: (locale: string) => void) {
     listeners.add(listener)
@@ -210,55 +237,70 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
      return isRTL(getLocale()) ? 'rtl' : 'ltr'
    }
 
-   function formatNumber(value: number, options?: Intl.NumberFormatOptions, localeOverride?: string) {
-    const locale = localeOverride ?? currentLocale
-    const key = `${locale}-${JSON.stringify(options ?? {})}`
-    let formatter = numberFormatCache.get(key)
-    if (!formatter) {
-      formatter = new Intl.NumberFormat(locale, options)
-      numberFormatCache.set(key, formatter)
-    }
-    return formatter.format(value)
-  }
-
-  function formatDate(value: Date | number | string, options?: Intl.DateTimeFormatOptions, localeOverride?: string) {
-    const locale = localeOverride ?? currentLocale
-    const key = `${locale}-${JSON.stringify(options ?? {})}`
-    let formatter = dateTimeFormatCache.get(key)
-    if (!formatter) {
-      formatter = new Intl.DateTimeFormat(locale, options)
-      dateTimeFormatCache.set(key, formatter)
-    }
-    const date = typeof value === 'string' ? new Date(value) : value
-    return formatter.format(date)
-  }
-
-  function formatRelativeTime(
-    value: number,
-    unit: Intl.RelativeTimeFormatUnit,
-    options?: Intl.RelativeTimeFormatOptions,
-    localeOverride?: string
-  ) {
-    const locale = localeOverride ?? currentLocale
-    const key = `${locale}-${JSON.stringify(options ?? {})}`
-    let formatter = relativeTimeFormatCache.get(key)
-    if (!formatter) {
-      formatter = new Intl.RelativeTimeFormat(locale, options)
-      relativeTimeFormatCache.set(key, formatter)
-    }
-    return formatter.format(value, unit)
-  }
-
-   return {
-     t: translate,
-     setLocale,
-     getLocale,
-     getFallbackLocale,
-     getDirection,
-     subscribe,
-     destroy,
-     number: formatNumber,
-     date: formatDate,
-     relativeTime: formatRelativeTime
+    function formatNumber(value: number, options?: Intl.NumberFormatOptions, localeOverride?: string) {
+     const locale = localeOverride ?? currentLocale
+     const key = buildIntlCacheKey(locale, options as Record<string, unknown> | undefined)
+     let formatter = numberFormatCache.get(key)
+     if (!formatter) {
+       formatter = new Intl.NumberFormat(locale, options)
+       numberFormatCache.set(key, formatter)
+     }
+     return formatter.format(value)
    }
+
+   function formatDate(value: Date | number | string, options?: Intl.DateTimeFormatOptions, localeOverride?: string) {
+     const locale = localeOverride ?? currentLocale
+     const key = buildIntlCacheKey(locale, options as Record<string, unknown> | undefined)
+     let formatter = dateTimeFormatCache.get(key)
+     if (!formatter) {
+       formatter = new Intl.DateTimeFormat(locale, options)
+       dateTimeFormatCache.set(key, formatter)
+     }
+     const date = typeof value === 'string' ? new Date(value) : value
+     return formatter.format(date)
+   }
+
+    function formatRelativeTime(
+      value: number,
+      unit: Intl.RelativeTimeFormatUnit,
+      options?: Intl.RelativeTimeFormatOptions,
+      localeOverride?: string
+    ) {
+      const locale = localeOverride ?? currentLocale
+      const key = buildIntlCacheKey(locale, options)
+      let formatter = relativeTimeFormatCache.get(key)
+      if (!formatter) {
+        formatter = new Intl.RelativeTimeFormat(locale, options)
+        relativeTimeFormatCache.set(key, formatter)
+      }
+      return formatter.format(value, unit)
+    }
+
+   function mergeMessages(messages: Messages | Record<string, Messages>) {
+     if (isLocaleMap(messages)) {
+       for (const [name, msgs] of Object.entries(messages)) {
+         if (typeof msgs === 'object' && msgs !== null) {
+           const existing = loaded.get(name) ?? {}
+           loaded.set(name, deepMerge(existing, msgs as Messages))
+         }
+       }
+     } else if (typeof messages === 'object' && messages !== null) {
+       const existing = loaded.get(locale) ?? {}
+       loaded.set(locale, deepMerge(existing, messages as Messages))
+     }
+   }
+
+     return {
+      t: translate,
+      setLocale,
+      getLocale,
+      getFallbackLocale,
+      getDirection,
+      subscribe,
+      destroy,
+      number: formatNumber,
+      date: formatDate,
+      relativeTime: formatRelativeTime,
+      mergeMessages: mergeMessages as I18nInstance<M>['mergeMessages']
+    }
 }

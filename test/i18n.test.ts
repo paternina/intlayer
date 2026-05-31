@@ -105,24 +105,109 @@ describe('intlayer', () => {
     expect(isRTL('he-IL')).toBe(true)
   })
 
-  it('returns fallback locale as provided (string or array)', () => {
-    // string fallback
+  it('returns fallback locale normalized as array', () => {
     const i18n1 = createI18n({ locale: 'en', fallbackLocale: 'fr', messages: { en: {} } })
-    expect(i18n1.getFallbackLocale()).toBe('fr')
-    // array fallback
+    expect(i18n1.getFallbackLocale()).toEqual(['fr'])
     const i18n2 = createI18n({ locale: 'en', fallbackLocale: ['fr', 'de'], messages: { en: {} } })
     expect(i18n2.getFallbackLocale()).toEqual(['fr', 'de'])
-    // undefined fallback (defaults to locale)
     const i18n3 = createI18n({ locale: 'en', messages: { en: {} } })
-    expect(i18n3.getFallbackLocale()).toBe('en')
+    expect(i18n3.getFallbackLocale()).toEqual(['en'])
   })
 
   it('getDirection returns rtl for arabic and ltr for english', () => {
     const i18n = createI18n({ locale: 'en', messages: { en: {} } })
     expect(i18n.getDirection()).toBe('ltr')
-    // change locale to arabic
-    // Note: setLocale is async, but we can test sync by setting locale directly? We'll just test with a new instance.
     const i18nAr = createI18n({ locale: 'ar', messages: { ar: {} } })
     expect(i18nAr.getDirection()).toBe('rtl')
+  })
+
+  it('includes newly added RTL languages', () => {
+    expect(isRTL('dv')).toBe(true)
+    expect(isRTL('ku')).toBe(true)
+    expect(isRTL('yi')).toBe(true)
+  })
+
+  it('warns on missing translation key when warnOnMissingKey is enabled', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { en: { hello: 'Hello' } },
+      warnOnMissingKey: true
+    })
+    const result = i18n.t('missing')
+    expect(result).toBe('missing')
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]![0]!).toContain('Missing translation key')
+    expect(warn.mock.calls[0]![0]!).toContain('"missing"')
+    warn.mockRestore()
+  })
+
+  it('does not warn on missing key when warnOnMissingKey is disabled', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { en: { hello: 'Hello' } },
+      warnOnMissingKey: false
+    })
+    const result = i18n.t('missing')
+    expect(result).toBe('missing')
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('merges messages into the active locale', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: {
+        en: { hello: 'Hello', deep: { a: 'A' } }
+      }
+    })
+    expect(i18n.t('hello')).toBe('Hello')
+
+    i18n.mergeMessages({
+      en: { world: 'World', deep: { b: 'B' } } as any
+    })
+
+    expect(i18n.t('hello')).toBe('Hello')
+    expect(i18n.t('world')).toBe('World')
+    expect(i18n.t('deep.a')).toBe('A')
+    expect(i18n.t('deep.b')).toBe('B')
+  })
+
+  it('normalizes fallback locales by deduplicating and appending base locale', () => {
+    const i18n = createI18n({
+      locale: 'en-US',
+      fallbackLocale: ['en-GB', 'en-US', 'fr'],
+      messages: {
+        'en-GB': { hello: 'Hi' },
+        en: { hello: 'Hello' },
+        fr: { hello: 'Bonjour' }
+      }
+    })
+    expect(i18n.getFallbackLocale()).toEqual(['en-GB', 'fr', 'en'])
+    expect(i18n.t('hello')).toBe('Hi')
+  })
+
+  it('does not change locale when loader times out', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const slowLoader = vi.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      return { greet: 'Too late' }
+    })
+
+    const i18n = createI18n({
+      locale: 'en',
+      fallbackLocale: 'en',
+      messages: { en: { greet: 'Hello' } },
+      loaders: { fr: slowLoader },
+      loaderTimeout: 50
+    })
+
+    await i18n.setLocale('fr')
+    expect(i18n.getLocale()).toBe('en')
+    expect(i18n.t('greet')).toBe('Hello')
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toContain('Failed to load locale "fr"')
+    warn.mockRestore()
   })
 })

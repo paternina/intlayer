@@ -31,4 +31,5 @@ export interface I18nInstance<M extends Messages = Messages> {
     options?: Intl.RelativeTimeFormatOptions,
     locale?: string
   ) => string
+  mergeMessages: (messages: Messages | Record<string, Messages>) => void
 }
