@@ -1,4 +1,4 @@
-const rtlLanguages = new Set(['ar', 'he', 'fa', 'ur', 'ps', 'sd', 'ug', 'yi'])
+const rtlLanguages = new Set(['ar', 'he', 'fa', 'ur', 'ps', 'sd', 'ug', 'yi', 'dv', 'ku'])
 
 export function isRTL(locale: string): boolean {
   const [lang = ''] = locale.trim().split(/[-_]/)

@@ -6,6 +6,29 @@ import { LRUCache } from '../utils/lru'
 
 const localeKey = /^[a-z]{2,3}(?:[-_][A-Za-z0-9]+)?$/
 
+function normalizeFallback(raw: string | string[], primary: string): string[] {
+  const items = Array.isArray(raw) ? [...raw] : [raw]
+  const primaryLower = primary.toLowerCase()
+  const base = primary.split(/[-_]/)[0] ?? primary
+  const baseLower = base.toLowerCase()
+  const result: string[] = []
+  const seen = new Set<string>()
+
+  for (const loc of items) {
+    const lower = loc.toLowerCase()
+    if (lower === primaryLower) continue
+    if (seen.has(lower)) continue
+    seen.add(lower)
+    result.push(loc)
+  }
+
+  if (baseLower !== primaryLower && !seen.has(baseLower)) {
+    result.push(base)
+  }
+
+  return result
+}
+
 // Caches for Intl formatters
 const numberFormatCache = new LRUCache<string, Intl.NumberFormat>(1000)
 const dateTimeFormatCache = new LRUCache<string, Intl.DateTimeFormat>(1000)
@@ -24,9 +47,9 @@ function isLocaleMap(value: unknown): value is Record<string, Messages> {
 export function createI18n<M extends Messages = Messages>(options: I18nOptions<M>): I18nInstance<M> {
   const locale = options.locale
   const fallbackLocaleRaw = options.fallbackLocale ?? locale
-  const fallbackLocale = Array.isArray(fallbackLocaleRaw)
-    ? fallbackLocaleRaw
-    : [fallbackLocaleRaw]
+  const fallbackLocale = normalizeFallback(fallbackLocaleRaw, locale)
+  const warnOnMissingKey = options.warnOnMissingKey ?? false
+  const loaderTimeout = options.loaderTimeout ?? 0
   const loaders: LoaderMap = options.loaders ?? {}
   const loaded = new Map<string, Messages>()
   const pending = new Map<string, Promise<void>>()
@@ -72,34 +95,53 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
     return undefined
   }
 
-   async function loadLocale(localeToLoad: string): Promise<void> {
-     if (loaded.has(localeToLoad)) {
-       return
-     }
+    async function loadLocale(localeToLoad: string): Promise<void> {
+      if (loaded.has(localeToLoad)) {
+        return
+      }
 
-     const pendingLoad = pending.get(localeToLoad)
-     if (pendingLoad) {
-       return pendingLoad
-     }
+      const pendingLoad = pending.get(localeToLoad)
+      if (pendingLoad) {
+        return pendingLoad
+      }
 
-     const loader = loaders[localeToLoad]
-     if (!loader) {
-       return
-     }
+      const loader = loaders[localeToLoad]
+      if (!loader) {
+        return
+      }
 
-     const promise = Promise.resolve(loader())
-       .then((messages) => {
-         if (typeof messages === 'object' && messages !== null) {
-           loaded.set(localeToLoad, messages)
-         }
-       })
-       .finally(() => {
-         pending.delete(localeToLoad)
-       })
+      const promise = (async () => {
+        const loaderPromise = Promise.resolve(loader())
 
-     pending.set(localeToLoad, promise)
-     return promise
-   }
+        if (loaderTimeout <= 0) {
+          const messages = await loaderPromise
+          if (typeof messages === 'object' && messages !== null) {
+            loaded.set(localeToLoad, messages)
+          }
+          return
+        }
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`[intlayer] Loader timeout for locale "${localeToLoad}" after ${loaderTimeout}ms`))
+          }, loaderTimeout)
+        })
+
+        try {
+          const messages = await Promise.race([loaderPromise, timeoutPromise])
+          if (typeof messages === 'object' && messages !== null) {
+            loaded.set(localeToLoad, messages)
+          }
+        } catch (error) {
+          console.warn(`[intlayer] Failed to load locale "${localeToLoad}":`, error)
+        }
+      })().finally(() => {
+        pending.delete(localeToLoad)
+      })
+
+      pending.set(localeToLoad, promise)
+      return promise
+    }
 
   function notify() {
     if (destroyed) {
@@ -120,6 +162,9 @@ export function createI18n<M extends Messages = Messages>(options: I18nOptions<M
     }
 
     if (!source) {
+      if (warnOnMissingKey) {
+        console.warn(`[intlayer] Missing translation key: "${key}" for locale "${currentLocale}"`)
+      }
       return key
     }
 

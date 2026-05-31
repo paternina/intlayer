@@ -11,6 +11,8 @@ export interface I18nOptions<M extends Messages = Messages> {
   fallbackLocale?: string | string[]
   messages?: M | Record<string, M>
   loaders?: LoaderMap
+  warnOnMissingKey?: boolean
+  loaderTimeout?: number
 }
 
 export interface I18nInstance<M extends Messages = Messages> {
