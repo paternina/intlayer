@@ -324,4 +324,61 @@ describe('intlayer', () => {
 
     expect(i18n.t('missing', 'Default')).toBe('Default')
   })
+
+  it('supports escaping curly braces and hashes in templates', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: {
+        escaped: 'Use \\{name\\} for variables.',
+        plural_escaped: '{count, plural, one {\\#1 item} other {\\# items}}'
+      }
+    })
+
+    expect(i18n.t('escaped')).toBe('Use {name} for variables.')
+    expect(i18n.t('plural_escaped', { count: 1 })).toBe('#1 item')
+  })
+
+  it('supports exact value matching in plurals', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: {
+        items: '{count, plural, =0 {No items} =1 {A single item} other {# items}}'
+      }
+    })
+
+    expect(i18n.t('items', { count: 0 })).toBe('No items')
+    expect(i18n.t('items', { count: 1 })).toBe('A single item')
+    expect(i18n.t('items', { count: 5 })).toBe('5 items')
+  })
+
+  it('resolves advanced array and object paths', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: {
+        users: [
+          { name: 'John', roles: ['admin'] }
+        ]
+      }
+    })
+
+    expect(i18n.t('users[0].name')).toBe('John')
+    expect(i18n.t('users[0].roles[0]')).toBe('admin')
+  })
+
+  it('notifies subscribers when mergeMessages is called', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { en: { hello: 'Hello' } }
+    })
+
+    const listener = vi.fn()
+    i18n.subscribe(listener)
+
+    i18n.mergeMessages({
+      en: { world: 'World' } as any
+    })
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(listener).toHaveBeenCalledWith('en')
+  })
 })

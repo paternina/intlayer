@@ -10,7 +10,7 @@ export function resolve(path: string, obj: unknown): unknown {
   let getter = resolverCache.get(path)
 
   if (!getter) {
-    const parts = path.split('.')
+    const parts = path.split(/\.|\[|\]|'|"/).filter(Boolean)
 
     getter = (target) => {
       let current = target as any

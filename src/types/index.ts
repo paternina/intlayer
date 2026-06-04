@@ -1,5 +1,7 @@
+export type MessageValue = string | Messages | MessageValue[]
+
 export interface Messages {
-  [key: string]: string | Messages
+  [key: string]: MessageValue
 }
 
 export type LocaleLoader = () => Promise<Messages>

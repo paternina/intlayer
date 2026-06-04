@@ -330,6 +330,7 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
       const existing = loaded.get(currentLocale) ?? {}
       loaded.set(currentLocale, deepMerge(existing, messages as Messages))
     }
+    notify()
   }
 
   return {
