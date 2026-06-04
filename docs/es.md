@@ -60,17 +60,42 @@ console.log(isRTL('ar'))
 
 ## Mensajes y pluralización
 
-Soporta lookup de claves anidadas y plantillas con interpolación. Ejemplo de plural:
+Soporta lookup de claves anidadas (incluyendo notación de arreglos) y plantillas con interpolación.
+
+### Rutas de arreglos y escapado
+
+Puedes usar índices de arreglos para resolver elementos, y escapar caracteres reservados (`{`, `}`, `#`) anteponiendo una barra invertida (`\\`).
 
 ```ts
 const i18n = createI18n({
   locale: 'en',
   messages: {
-    items: '{count, plural, one {# item} other {# items}}'
+    users: [
+      { name: 'John' },
+      { name: 'Jane' }
+    ],
+    escaped: 'Usa \\{variable\\} para mostrar las llaves'
   }
 })
 
-console.log(i18n.t('items', { count: 1 })) // 1 item
+console.log(i18n.t('users[0].name')) // John
+console.log(i18n.t('escaped')) // Usa {variable} para mostrar las llaves
+```
+
+### Plurales
+
+Los plurales soportan coincidencias exactas (ej. `=0`) además de las categorías estándar (`zero`, `one`, `two`, `few`, `many`, `other`):
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: {
+    items: '{count, plural, =0 {Sin items} =1 {Un item} other {# items}}'
+  }
+})
+
+console.log(i18n.t('items', { count: 0 })) // Sin items
+console.log(i18n.t('items', { count: 1 })) // Un item
 console.log(i18n.t('items', { count: 5 })) // 5 items
 ```
 
@@ -133,7 +158,7 @@ console.log(i18n.t('greet'))
 
 ### Fusión de traducciones en runtime
 
-Usa `mergeMessages` para inyectar o extender traducciones después de la inicialización:
+Usa `mergeMessages` para inyectar o extender traducciones después de la inicialización. Los suscriptores activos serán notificados automáticamente para re-renderizar la UI:
 
 ```ts
 i18n.mergeMessages({

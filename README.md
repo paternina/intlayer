@@ -4,10 +4,10 @@ A lightweight, framework-agnostic internationalization runtime for JavaScript an
 
 ## Features
 
-- Nested translation lookup
+- Nested translation lookup with object and array support (`users[0].name`)
 - Cached path resolvers (LRU cache prevents memory leaks)
-- Interpolation templates
-- ICU-style plural support with locale-aware rules
+- Interpolation templates with character escaping (`\\{`, `\\}`)
+- ICU-style plural support with exact matches (`=0`) and locale-aware rules
 - Locale switching with subscriptions
 - Lazy locale loading with cache
 - Fallback locale resolution with automatic base-locale fallback (e.g. `en-US` → `en`) and deduplication
@@ -173,14 +173,6 @@ const i18n = createI18n({
 
 i18n.has('hello') // true
 i18n.has('missing') // false
-```
-
-## Development
-
-```bash
-npm install
-npm test
-npm run build
 ```
 
 ## Documentation

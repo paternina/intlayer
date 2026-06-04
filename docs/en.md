@@ -60,17 +60,42 @@ console.log(isRTL('ar'))
 
 ## Messages and pluralization
 
-Supports nested key lookup and template interpolation. Example plural usage:
+Supports nested key lookup (including array notation) and template interpolation.
+
+### Array paths and escaping
+
+You can use array indices to resolve elements, and escape reserved characters (`{`, `}`, `#`) by prefixing them with a backslash (`\\`).
 
 ```ts
 const i18n = createI18n({
   locale: 'en',
   messages: {
-    items: '{count, plural, one {# item} other {# items}}'
+    users: [
+      { name: 'John' },
+      { name: 'Jane' }
+    ],
+    escaped: 'Use \\{variable\\} to show curly braces'
   }
 })
 
-console.log(i18n.t('items', { count: 1 })) // 1 item
+console.log(i18n.t('users[0].name')) // John
+console.log(i18n.t('escaped')) // Use {variable} to show curly braces
+```
+
+### Plurals
+
+Plurals support exact value matching (e.g. `=0`) in addition to the standard categories (`zero`, `one`, `two`, `few`, `many`, `other`):
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: {
+    items: '{count, plural, =0 {No items} =1 {A single item} other {# items}}'
+  }
+})
+
+console.log(i18n.t('items', { count: 0 })) // No items
+console.log(i18n.t('items', { count: 1 })) // A single item
 console.log(i18n.t('items', { count: 5 })) // 5 items
 ```
 
@@ -133,7 +158,7 @@ console.log(i18n.t('greet'))
 
 ### Runtime message merging
 
-Use `mergeMessages` to inject or extend translations after initialization:
+Use `mergeMessages` to inject or extend translations after initialization. Active subscribers are automatically notified to re-render the UI:
 
 ```ts
 i18n.mergeMessages({
