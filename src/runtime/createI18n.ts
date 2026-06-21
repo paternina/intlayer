@@ -1,12 +1,15 @@
 import { compileMessage } from '../core/compile'
 import { resolve } from '../core/resolve'
 import { isRTL } from '../utils/rtl'
-import type { I18nInstance, I18nOptions, LoaderMap, Messages } from '../types'
+import type { I18nInstance, I18nOptions, LoaderMap, Messages, MessagesFromKeys } from '../types'
 import { LRUCache } from '../utils/lru'
 
-const localeKey = /^[a-z]{2,3}(?:[-_][A-Za-z0-9]+)?$/
+type IntlOptions = Record<string, unknown> | Intl.NumberFormatOptions | Intl.DateTimeFormatOptions | Intl.RelativeTimeFormatOptions | Intl.ListFormatOptions | Intl.CollatorOptions
 
-function buildIntlCacheKey(locale: string, options?: Record<string, unknown> | Intl.NumberFormatOptions | Intl.DateTimeFormatOptions | Intl.RelativeTimeFormatOptions): string {
+const localeKey = /^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/i
+const normalizeLocaleName = (locale: string) => locale.trim().replace(/_/g, '-').toLowerCase()
+
+function buildIntlCacheKey(locale: string, options?: IntlOptions): string {
   if (!options || Object.keys(options as Record<string, unknown>).length === 0) {
     return locale
   }
@@ -34,14 +37,14 @@ function deepMerge(target: Messages, source: Messages): Messages {
 
 function normalizeFallback(raw: string | string[], primary: string): string[] {
   const items = Array.isArray(raw) ? [...raw] : [raw]
-  const primaryLower = primary.toLowerCase()
+  const primaryLower = normalizeLocaleName(primary)
   const base = primary.split(/[-_]/)[0] ?? primary
-  const baseLower = base.toLowerCase()
+  const baseLower = normalizeLocaleName(base)
   const result: string[] = []
   const seen = new Set<string>()
 
   for (const loc of items) {
-    const lower = loc.toLowerCase()
+    const lower = normalizeLocaleName(loc)
     if (lower === primaryLower) continue
     if (seen.has(lower)) continue
     seen.add(lower)
@@ -55,15 +58,16 @@ function normalizeFallback(raw: string | string[], primary: string): string[] {
   return result.length > 0 ? result : [primary]
 }
 
-export function createI18n<T extends string = string>(options: I18nOptions): I18nInstance<T> {
+export function createI18n<T extends string = string>(options: I18nOptions<T>): I18nInstance<T> {
   const locale = options.locale
   const fallbackLocaleRaw = options.fallbackLocale ?? locale
   const fallbackLocale = normalizeFallback(fallbackLocaleRaw, locale)
   const warnOnMissingKey = options.warnOnMissingKey ?? false
+  const onMissingKey = options.onMissingKey
   const loaderTimeout = options.loaderTimeout ?? 0
   const loaders: LoaderMap = options.loaders ?? {}
   const loaded = new Map<string, Messages>()
-  const pending = new Map<string, Promise<void>>()
+  const pending = new Map<string, Promise<boolean>>()
   const listeners = new Set<(locale: string) => void>()
   let currentLocale = locale
   let destroyed = false
@@ -71,9 +75,11 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
   const numberFormatCache = new LRUCache<string, Intl.NumberFormat>(1000)
   const dateTimeFormatCache = new LRUCache<string, Intl.DateTimeFormat>(1000)
   const relativeTimeFormatCache = new LRUCache<string, Intl.RelativeTimeFormat>(1000)
+  const listFormatCache = new LRUCache<string, Intl.ListFormat>(1000)
+  const collatorCache = new LRUCache<string, Intl.Collator>(1000)
   const pluralRulesCache = new LRUCache<string, Intl.PluralRules>(1000)
 
-  function isLocaleMap(value: unknown): value is Record<string, Messages> {
+  function isLocaleMap(value: unknown): value is Record<string, MessagesFromKeys<T>> {
     return (
       typeof value === 'object' &&
       value !== null &&
@@ -85,26 +91,65 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
 
   const initialMessages = options.messages ?? {}
   const isInitialLocaleMap = isLocaleMap(initialMessages)
+  const initialLocaleMap = isInitialLocaleMap ? initialMessages : undefined
 
   if (isInitialLocaleMap) {
     for (const [name, messages] of Object.entries(initialMessages)) {
       if (typeof messages === 'object' && messages !== null) {
-        loaded.set(name, messages)
+        loaded.set(name, messages as Messages)
       }
     }
   } else if (typeof initialMessages === 'object' && initialMessages !== null) {
     loaded.set(locale, initialMessages as Messages)
   }
 
+  function findLocaleKey(targetLocale: string): string | undefined {
+    const exact = loaded.get(targetLocale)
+    if (exact) {
+      return targetLocale
+    }
+
+    const normalized = normalizeLocaleName(targetLocale)
+    for (const key of loaded.keys()) {
+      if (normalizeLocaleName(key) === normalized) {
+        return key
+      }
+    }
+
+    return undefined
+  }
+
+  function findInitialLocaleKey(targetLocale: string): string | undefined {
+    if (!initialLocaleMap) {
+      return undefined
+    }
+
+    const exact = initialLocaleMap[targetLocale]
+    if (exact) {
+      return targetLocale
+    }
+
+    const normalized = normalizeLocaleName(targetLocale)
+    for (const key of Object.keys(initialLocaleMap)) {
+      if (normalizeLocaleName(key) === normalized) {
+        return key
+      }
+    }
+
+    return undefined
+  }
+
   function getMessagesFor(targetLocale: string): Messages | undefined {
-    const loadedMessages = loaded.get(targetLocale)
-    if (loadedMessages) {
-      return loadedMessages
+    const loadedKey = findLocaleKey(targetLocale)
+    if (loadedKey) {
+      return loaded.get(loadedKey)
     }
-    if (isInitialLocaleMap) {
-      const map = initialMessages as Record<string, Messages>
-      return map[targetLocale]
+
+    const initialKey = findInitialLocaleKey(targetLocale)
+    if (initialKey && initialLocaleMap) {
+      return initialLocaleMap[initialKey] as Messages
     }
+
     return undefined
   }
 
@@ -130,45 +175,46 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
     return { text: undefined, locale: localeToUse }
   }
 
-  async function loadLocale(localeToLoad: string): Promise<void> {
-    if (loaded.has(localeToLoad)) {
-      return
+  async function loadLocale(localeToLoad: string): Promise<boolean> {
+    if (getMessagesFor(localeToLoad)) {
+      return true
     }
 
     const pendingLoad = pending.get(localeToLoad)
     if (pendingLoad) {
-      return pendingLoad
+      await pendingLoad
+      return getMessagesFor(localeToLoad) !== undefined
     }
 
     const loader = loaders[localeToLoad]
     if (!loader) {
-      return
+      return false
     }
 
     const promise = (async () => {
       const loaderPromise = Promise.resolve(loader())
 
-      if (loaderTimeout <= 0) {
-        const messages = await loaderPromise
-        if (typeof messages === 'object' && messages !== null) {
-          loaded.set(localeToLoad, messages)
-        }
-        return
-      }
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          reject(new Error(`[intlayer] Loader timeout for locale "${localeToLoad}" after ${loaderTimeout}ms`))
-        }, loaderTimeout)
-      })
-
       try {
-        const messages = await Promise.race([loaderPromise, timeoutPromise])
+        const messages = loaderTimeout > 0
+          ? await Promise.race([
+              loaderPromise,
+              new Promise<never>((_, reject) => {
+                setTimeout(() => {
+                  reject(new Error(`[intlayer] Loader timeout for locale "${localeToLoad}" after ${loaderTimeout}ms`))
+                }, loaderTimeout)
+              })
+            ])
+          : await loaderPromise
+
         if (typeof messages === 'object' && messages !== null) {
           loaded.set(localeToLoad, messages)
+          return true
         }
+
+        return false
       } catch (error) {
         console.warn(`[intlayer] Failed to load locale "${localeToLoad}":`, error)
+        return false
       }
     })().finally(() => {
       pending.delete(localeToLoad)
@@ -176,6 +222,10 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
 
     pending.set(localeToLoad, promise)
     return promise
+  }
+
+  async function loadLocales(locales: readonly string[]): Promise<boolean[]> {
+    return Promise.all(locales.map((localeToLoad) => loadLocale(localeToLoad)))
   }
 
   function notify() {
@@ -188,23 +238,22 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
     }
   }
 
-  function translate(key: T, secondArg?: Record<string, unknown> | string): string {
+  function translate(key: T, valuesOrDefault?: Record<string, unknown> | string, defaultValue?: string): string {
     let values: Record<string, unknown> = {}
-    let defaultValue: string | undefined
-    
-    if (typeof secondArg === 'string') {
-      defaultValue = secondArg
+
+    if (typeof valuesOrDefault === 'string') {
+      defaultValue = valuesOrDefault
     } else {
-      values = secondArg ?? {}
+      values = valuesOrDefault ?? {}
     }
-    
+
     const locales = [currentLocale, ...fallbackLocale]
     let source: string | undefined
     let sourceLocale = currentLocale
 
     for (const locale of locales) {
       const result = resolveTextWithLocale(key, locale)
-      if (result.text) {
+      if (typeof result.text === 'string') {
         source = result.text
         sourceLocale = result.locale
         break
@@ -212,10 +261,12 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
     }
 
     if (!source) {
-      if (warnOnMissingKey) {
-        console.warn(`[intlayer] Missing translation key: "${key}" for locale "${currentLocale}"`)
-      }
-      return defaultValue ?? key
+      const missingValue = onMissingKey
+        ? onMissingKey(String(key), currentLocale)
+        : warnOnMissingKey
+          ? (console.warn(`[intlayer] Missing translation key: "${key}" for locale "${currentLocale}"`), undefined)
+          : undefined
+      return defaultValue ?? missingValue ?? key
     }
 
     return compileMessage(source, pluralRulesCache)(values, sourceLocale)
@@ -238,9 +289,9 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
       return
     }
 
-    if (loaders[newLocale] && !loaded.has(newLocale)) {
-      await loadLocale(newLocale)
-      if (!loaded.has(newLocale)) {
+    if (loaders[newLocale] && !getMessagesFor(newLocale)) {
+      const loadedLocale = await loadLocale(newLocale)
+      if (!loadedLocale) {
         return
       }
     }
@@ -271,6 +322,8 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
     numberFormatCache.clear()
     dateTimeFormatCache.clear()
     relativeTimeFormatCache.clear()
+    listFormatCache.clear()
+    collatorCache.clear()
     pluralRulesCache.clear()
     destroyed = true
   }
@@ -281,7 +334,7 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
 
   function formatNumber(value: number, options?: Intl.NumberFormatOptions, localeOverride?: string) {
     const locale = localeOverride ?? currentLocale
-    const key = buildIntlCacheKey(locale, options as Record<string, unknown> | undefined)
+    const key = buildIntlCacheKey(locale, options)
     let formatter = numberFormatCache.get(key)
     if (!formatter) {
       formatter = new Intl.NumberFormat(locale, options)
@@ -292,7 +345,7 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
 
   function formatDate(value: Date | number | string, options?: Intl.DateTimeFormatOptions, localeOverride?: string) {
     const locale = localeOverride ?? currentLocale
-    const key = buildIntlCacheKey(locale, options as Record<string, unknown> | undefined)
+    const key = buildIntlCacheKey(locale, options)
     let formatter = dateTimeFormatCache.get(key)
     if (!formatter) {
       formatter = new Intl.DateTimeFormat(locale, options)
@@ -318,7 +371,29 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
     return formatter.format(value, unit)
   }
 
-  function mergeMessages(messages: Messages | Record<string, Messages>) {
+  function formatList(value: readonly string[], options?: Intl.ListFormatOptions, localeOverride?: string) {
+    const locale = localeOverride ?? currentLocale
+    const key = buildIntlCacheKey(locale, options)
+    let formatter = listFormatCache.get(key)
+    if (!formatter) {
+      formatter = new Intl.ListFormat(locale, options)
+      listFormatCache.set(key, formatter)
+    }
+    return formatter.format(value)
+  }
+
+  function compareValues(a: string, b: string, options?: Intl.CollatorOptions, localeOverride?: string) {
+    const locale = localeOverride ?? currentLocale
+    const key = buildIntlCacheKey(locale, options)
+    let formatter = collatorCache.get(key)
+    if (!formatter) {
+      formatter = new Intl.Collator(locale, options)
+      collatorCache.set(key, formatter)
+    }
+    return formatter.compare(a, b)
+  }
+
+  function mergeMessages(messages: MessagesFromKeys<T> | Record<string, MessagesFromKeys<T>>) {
     if (isLocaleMap(messages)) {
       for (const [name, msgs] of Object.entries(messages)) {
         if (typeof msgs === 'object' && msgs !== null) {
@@ -333,6 +408,14 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
     notify()
   }
 
+  function getLoadedLocales() {
+    return Array.from(loaded.keys())
+  }
+
+  function getMessages(targetLocale?: string) {
+    return getMessagesFor(targetLocale ?? currentLocale)
+  }
+
   return {
     t: translate,
     setLocale,
@@ -344,7 +427,13 @@ export function createI18n<T extends string = string>(options: I18nOptions): I18
     number: formatNumber,
     date: formatDate,
     relativeTime: formatRelativeTime,
+    list: formatList,
+    compare: compareValues,
     mergeMessages,
-    has: hasTranslation
+    has: hasTranslation,
+    loadLocale,
+    loadLocales,
+    getLoadedLocales,
+    getMessages
   }
 }

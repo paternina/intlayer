@@ -381,4 +381,127 @@ describe('intlayer', () => {
     expect(listener).toHaveBeenCalledTimes(1)
     expect(listener).toHaveBeenCalledWith('en')
   })
+
+  it('supports values and default value in the same translation call', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { en: { missing: 'Hello {name}' } }
+    })
+
+    expect(i18n.t('missing' as any, { name: 'Ana' }, 'Fallback')).toBe('Hello Ana')
+  })
+
+  it('uses onMissingKey before falling back to the key', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { en: {} },
+      onMissingKey: (key) => `Missing ${key}`
+    })
+
+    expect(i18n.t('missing' as any, 'Fallback')).toBe('Fallback')
+    expect(i18n.t('missing' as any)).toBe('Missing missing')
+  })
+
+  it('loads and exposes locale management helpers', async () => {
+    const loader = vi.fn(async () => ({ greet: 'Bonjour' }))
+    const i18n = createI18n({
+      locale: 'en',
+      fallbackLocale: 'en',
+      messages: { en: { hello: 'Hello' } },
+      loaders: { fr: loader }
+    })
+
+    await expect(i18n.loadLocale('fr')).resolves.toBe(true)
+    await expect(i18n.loadLocale('fr')).resolves.toBe(true)
+    expect(loader).toHaveBeenCalledTimes(1)
+    expect(i18n.getLoadedLocales()).toEqual(['en', 'fr'])
+    expect(i18n.getMessages('fr')).toEqual({ greet: 'Bonjour' })
+    expect(i18n.getMessages()).toEqual({ hello: 'Hello' })
+  })
+
+  it('loads multiple locales and returns per-locale results', async () => {
+    const i18n = createI18n({
+      locale: 'en',
+      fallbackLocale: 'en',
+      messages: { en: { hello: 'Hello' } },
+      loaders: {
+        fr: async () => ({ hello: 'Bonjour' }),
+        es: async () => ({ hello: 'Hola' })
+      }
+    })
+
+    await expect(i18n.loadLocales(['fr', 'es', 'de'])).resolves.toEqual([true, true, false])
+    expect(i18n.getLoadedLocales()).toEqual(['en', 'fr', 'es'])
+  })
+
+  it('supports BCP 47 locale keys with script and region subtags', () => {
+    const i18n = createI18n({
+      locale: 'zh-Hans-CN',
+      fallbackLocale: 'zh',
+      messages: {
+        'zh-Hans-CN': { hello: '你好' },
+        zh: { hello: '中文' }
+      }
+    })
+
+    expect(i18n.t('hello' as any)).toBe('你好')
+    expect(i18n.getFallbackLocale()).toEqual(['zh'])
+  })
+
+  it('supports ICU select blocks', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: {
+        en: {
+          owner: '{gender, select, male {He owns it} female {She owns it} other {They own it}}'
+        }
+      }
+    })
+
+    expect(i18n.t('owner' as any, { gender: 'female' })).toBe('She owns it')
+    expect(i18n.t('owner' as any, { gender: 'unknown' })).toBe('They own it')
+  })
+
+  it('supports ICU selectordinal blocks', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: {
+        en: {
+          rank: '{place, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}'
+        }
+      }
+    })
+
+    expect(i18n.t('rank' as any, { place: 1 })).toBe('1st')
+    expect(i18n.t('rank' as any, { place: 2 })).toBe('2nd')
+    expect(i18n.t('rank' as any, { place: 3 })).toBe('3rd')
+    expect(i18n.t('rank' as any, { place: 4 })).toBe('4th')
+  })
+
+  it('formats lists with Intl.ListFormat', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { en: {} }
+    })
+
+    expect(i18n.list(['Ana', 'Bob', 'Cara'])).toBe('Ana, Bob, and Cara')
+  })
+
+  it('compares strings with Intl.Collator', () => {
+    const i18n = createI18n({
+      locale: 'es',
+      messages: { es: {} }
+    })
+
+    expect(i18n.compare('b', 'a')).toBeGreaterThan(0)
+  })
+
+  it('formats dates with explicit time zones', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { en: {} }
+    })
+
+    expect(i18n.date(new Date('2026-06-20T23:30:00Z'), { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' })).toBe('11:30 PM')
+  })
 })

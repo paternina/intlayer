@@ -37,12 +37,18 @@ console.log(isRTL('ar'))
 - `i18n.setLocale(locale)`
 - `i18n.getLocale()`
 - `i18n.getFallbackLocale()`
+- `i18n.getLoadedLocales()`
+- `i18n.getMessages(locale?)`
+- `i18n.loadLocale(locale)`
+- `i18n.loadLocales(locales)`
 - `i18n.getDirection()`
 - `i18n.subscribe(listener)`
 - `i18n.destroy()`
 - `i18n.number(value, options)`
 - `i18n.date(value, options)`
 - `i18n.relativeTime(value, unit, options)`
+- `i18n.list(value, options)`
+- `i18n.compare(a, b, options)`
 - `i18n.mergeMessages(messages)` — fusiona traducciones en runtime
 - `i18n.has(key)` — verifica si existe una traducción
 - `isRTL(locale)`
@@ -56,6 +62,7 @@ console.log(isRTL('ar'))
 | `messages` | `Messages \| Record<string, Messages>` | — | Traducciones iniciales |
 | `loaders` | `Record<string, () => Promise<Messages>>` | — | Carga perezosa por locale |
 | `warnOnMissingKey` | `boolean` | `false` | Log de keys faltantes en consola (dev) |
+| `onMissingKey` | `(key, locale) => string` | — | Valor custom para keys faltantes |
 | `loaderTimeout` | `number` (ms) | `0` (disabled) | Timeout para loaders lentos |
 
 ## Mensajes y pluralización
@@ -81,6 +88,16 @@ const i18n = createI18n({
 console.log(i18n.t('users[0].name')) // John
 console.log(i18n.t('escaped')) // Usa {variable} para mostrar las llaves
 ```
+
+### Valores default con interpolación
+
+Pasa valores y fallback en la misma llamada:
+
+```ts
+console.log(i18n.t('missing', { name: 'Jane' }, 'Hello {name}')) // Hello Jane
+```
+
+Si la key existe, el default se ignora. Si falta, intlayer usa el default como mensaje y aplica interpolación.
 
 ### Plurales
 
@@ -115,6 +132,36 @@ const i18n = createI18n({
 console.log(i18n.t('items', { count: 1 })) // 1 товар
 console.log(i18n.t('items', { count: 2 })) // 2 товара
 console.log(i18n.t('items', { count: 5 })) // 5 товаров
+```
+
+### Select y selectordinal
+
+Usa `select` para género u otros valores discretos:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: {
+    owner: '{gender, select, male {He owns it} female {She owns it} other {They own it}}'
+  }
+})
+
+console.log(i18n.t('owner', { gender: 'female' })) // She owns it
+```
+
+Usa `selectordinal` para ordinales según locale:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: {
+    rank: '{place, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}'
+  }
+})
+
+console.log(i18n.t('rank', { place: 1 })) // 1st
+console.log(i18n.t('rank', { place: 2 })) // 2nd
+console.log(i18n.t('rank', { place: 3 })) // 3rd
 ```
 
 ## Cambio de locale y suscripciones
@@ -156,6 +203,21 @@ await i18n.setLocale('fr')
 console.log(i18n.t('greet'))
 ```
 
+### Gestión de locales
+
+Precarga locales sin cambiar el locale activo, inspecciona locales cargados y lee mensajes raw:
+
+```ts
+await i18n.loadLocale('fr')
+await i18n.loadLocales(['es', 'de'])
+
+console.log(i18n.getLoadedLocales()) // ['en', 'fr', 'es']
+console.log(i18n.getMessages('fr')) // { greet: 'Salut' }
+console.log(i18n.getMessages()) // mensajes del locale activo
+```
+
+`loadLocale()` y `loadLocales()` devuelven `false` cuando un locale no tiene loader o el loader hace timeout.
+
 ### Fusión de traducciones en runtime
 
 Usa `mergeMessages` para inyectar o extender traducciones después de la inicialización. Los suscriptores activos serán notificados automáticamente para re-renderizar la UI:
@@ -183,6 +245,18 @@ const i18n = createI18n({
 })
 
 i18n.t('missing') // console.warn: [intlayer] Missing translation key: "missing"
+```
+
+Usa `onMissingKey` para devolver un valor custom antes de fallback a la key:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: { en: {} },
+  onMissingKey: (key) => `Missing ${key}`
+})
+
+i18n.t('missing') // Missing missing
 ```
 
 ### Timeout de loaders
@@ -300,7 +374,14 @@ El motor no requiere que las traducciones provengan de archivos `.ts` o `.js`: s
 ```ts
 i18n.number(1234567.89)
 i18n.date(new Date())
+i18n.date(new Date('2026-06-20T23:30:00Z'), {
+  timeZone: 'UTC',
+  hour: '2-digit',
+  minute: '2-digit'
+})
 i18n.relativeTime(-1, 'day')
+i18n.list(['Ana', 'Bob', 'Cara'])
+i18n.compare('b', 'a')
 ```
 
 ## Uso desde CDN

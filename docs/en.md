@@ -37,12 +37,18 @@ console.log(isRTL('ar'))
 - `i18n.setLocale(locale)`
 - `i18n.getLocale()`
 - `i18n.getFallbackLocale()`
+- `i18n.getLoadedLocales()`
+- `i18n.getMessages(locale?)`
+- `i18n.loadLocale(locale)`
+- `i18n.loadLocales(locales)`
 - `i18n.getDirection()`
 - `i18n.subscribe(listener)`
 - `i18n.destroy()`
 - `i18n.number(value, options)`
 - `i18n.date(value, options)`
 - `i18n.relativeTime(value, unit, options)`
+- `i18n.list(value, options)`
+- `i18n.compare(a, b, options)`
 - `i18n.mergeMessages(messages)` — merge translations at runtime
 - `i18n.has(key)` — check if translation exists
 - `isRTL(locale)`
@@ -56,6 +62,7 @@ console.log(isRTL('ar'))
 | `messages` | `Messages \| Record<string, Messages>` | — | Initial translations |
 | `loaders` | `Record<string, () => Promise<Messages>>` | — | Lazy locale loaders |
 | `warnOnMissingKey` | `boolean` | `false` | Log missing keys to console (dev) |
+| `onMissingKey` | `(key, locale) => string` | — | Custom missing-key value |
 | `loaderTimeout` | `number` (ms) | `0` (disabled) | Timeout for slow loaders |
 
 ## Messages and pluralization
@@ -81,6 +88,16 @@ const i18n = createI18n({
 console.log(i18n.t('users[0].name')) // John
 console.log(i18n.t('escaped')) // Use {variable} to show curly braces
 ```
+
+### Default values with interpolation
+
+Pass values and a fallback value in the same call:
+
+```ts
+console.log(i18n.t('missing', { name: 'Jane' }, 'Hello {name}')) // Hello Jane
+```
+
+If the key exists, the default value is ignored. If the key is missing, intlayer uses the default value as the message and still applies interpolation.
 
 ### Plurals
 
@@ -115,6 +132,36 @@ const i18n = createI18n({
 console.log(i18n.t('items', { count: 1 })) // 1 товар
 console.log(i18n.t('items', { count: 2 })) // 2 товара
 console.log(i18n.t('items', { count: 5 })) // 5 товаров
+```
+
+### Select and ordinal select
+
+Use `select` for gender or other discrete values:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: {
+    owner: '{gender, select, male {He owns it} female {She owns it} other {They own it}}'
+  }
+})
+
+console.log(i18n.t('owner', { gender: 'female' })) // She owns it
+```
+
+Use `selectordinal` for locale-aware ordinal forms:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: {
+    rank: '{place, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}'
+  }
+})
+
+console.log(i18n.t('rank', { place: 1 })) // 1st
+console.log(i18n.t('rank', { place: 2 })) // 2nd
+console.log(i18n.t('rank', { place: 3 })) // 3rd
 ```
 
 ## Locale switching and subscriptions
@@ -156,6 +203,21 @@ await i18n.setLocale('fr')
 console.log(i18n.t('greet'))
 ```
 
+### Locale management
+
+Preload locales without switching, inspect loaded locales, and read raw messages:
+
+```ts
+await i18n.loadLocale('fr')
+await i18n.loadLocales(['es', 'de'])
+
+console.log(i18n.getLoadedLocales()) // ['en', 'fr', 'es']
+console.log(i18n.getMessages('fr')) // { greet: 'Salut' }
+console.log(i18n.getMessages()) // active locale messages
+```
+
+`loadLocale()` and `loadLocales()` return `false` when a locale has no loader or the loader times out.
+
 ### Runtime message merging
 
 Use `mergeMessages` to inject or extend translations after initialization. Active subscribers are automatically notified to re-render the UI:
@@ -183,6 +245,18 @@ const i18n = createI18n({
 })
 
 i18n.t('missing') // console.warn: [intlayer] Missing translation key: "missing"
+```
+
+Use `onMissingKey` to return a custom value before falling back to the key:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: { en: {} },
+  onMissingKey: (key) => `Missing ${key}`
+})
+
+i18n.t('missing') // Missing missing
 ```
 
 ### Loader timeout
@@ -317,7 +391,14 @@ The engine does not require the translations to come from `.ts` or `.js` files �
 ```ts
 i18n.number(1234567.89)
 i18n.date(new Date())
+i18n.date(new Date('2026-06-20T23:30:00Z'), {
+  timeZone: 'UTC',
+  hour: '2-digit',
+  minute: '2-digit'
+})
 i18n.relativeTime(-1, 'day')
+i18n.list(['Ana', 'Bob', 'Cara'])
+i18n.compare('b', 'a')
 ```
 
 ## CDN usage

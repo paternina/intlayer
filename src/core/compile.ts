@@ -1,14 +1,13 @@
 import { LRUCache } from '../utils/lru'
 
-type Segment = TextSegment | VariableSegment | PluralSegment
+type Segment = TextSegment | VariableSegment | PluralSegment | SelectSegment | SelectOrdinalSegment
 
 type TextSegment = { type: 'text'; value: string }
 type VariableSegment = { type: 'variable'; name: string }
-type PluralSegment = {
-  type: 'plural'
-  value: string
-  options: Record<string, Segment[]>
-}
+type PluralSegment = { type: 'plural'; value: string; options: Record<string, Segment[]> }
+type SelectSegment = { type: 'select'; value: string; options: Record<string, Segment[]> }
+type SelectOrdinalSegment = { type: 'selectordinal'; value: string; options: Record<string, Segment[]> }
+type FormatSegment = PluralSegment | SelectSegment | SelectOrdinalSegment
 
 const compileCache = new LRUCache<string, (data?: Record<string, unknown>, locale?: string) => string>(1000)
 const defaultPluralRulesCache = new LRUCache<string, Intl.PluralRules>(1000)
@@ -53,19 +52,17 @@ function renderSegments(
         return value == null ? '' : String(value)
       }
 
-      if (segment.type === 'plural') {
+      if (segment.type === 'select') {
+        const rawValue = data[segment.value]
+        const option = segment.options[String(rawValue)] ?? segment.options.other
+        return option ? renderSegments(option, data, locale, pluralRulesCache, pluralCount) : ''
+      }
+
+      if (segment.type === 'plural' || segment.type === 'selectordinal') {
         const rawValue = data[segment.value]
         const count = Number(rawValue ?? 0)
         const exactMatch = `=${count}`
-        const option = segment.options[exactMatch] ?? (() => {
-          const effectiveCache = pluralRulesCache ?? defaultPluralRulesCache
-          let rule = effectiveCache.get(locale)
-          if (!rule) {
-            rule = new Intl.PluralRules(locale)
-            effectiveCache.set(locale, rule)
-          }
-          return segment.options[rule.select(count)] ?? segment.options.other
-        })()
+        const option = segment.options[exactMatch] ?? getPluralOption(segment, count, locale, pluralRulesCache)
 
         if (!option) {
           return ''
@@ -77,6 +74,24 @@ function renderSegments(
       return ''
     })
     .join('')
+}
+
+function getPluralOption(
+  segment: Extract<Segment, { type: 'plural' | 'selectordinal' }>,
+  count: number,
+  locale: string,
+  pluralRulesCache?: LRUCache<string, Intl.PluralRules>
+): Segment[] | undefined {
+  const effectiveCache = pluralRulesCache ?? defaultPluralRulesCache
+  const cacheKey = segment.type === 'selectordinal' ? `${locale}:ordinal` : locale
+  let rule = effectiveCache.get(cacheKey)
+
+  if (!rule) {
+    rule = new Intl.PluralRules(locale, segment.type === 'selectordinal' ? { type: 'ordinal' } : undefined)
+    effectiveCache.set(cacheKey, rule)
+  }
+
+  return segment.options[rule.select(count)] ?? segment.options.other
 }
 
 function parseTemplate(template: string): Segment[] {
@@ -106,8 +121,8 @@ function parseTemplate(template: string): Segment[] {
 
       const content = template.slice(cursor + 1, end).trim()
 
-      if (isPluralBlock(content)) {
-        segments.push(parsePlural(content))
+      if (isFormatBlock(content)) {
+        segments.push(parseFormat(content))
       } else {
         segments.push({ type: 'variable', name: content })
       }
@@ -150,21 +165,23 @@ function findMatchingBrace(value: string, start: number) {
   return -1
 }
 
-function isPluralBlock(content: string) {
-  return /^\w+,\s*plural\b/.test(content)
+function isFormatBlock(content: string) {
+  return /^\w+,\s*(plural|select|selectordinal)\b/.test(content)
 }
 
-function parsePlural(content: string): PluralSegment {
+function parseFormat(content: string): FormatSegment {
   const firstComma = content.indexOf(',')
   const value = firstComma >= 0 ? content.slice(0, firstComma).trim() : ''
   const rest = firstComma >= 0 ? content.slice(firstComma + 1) : ''
   const trimmedRest = rest.trim()
+  const match = trimmedRest.match(/^(plural|select|selectordinal)\b/)
 
-  if (!trimmedRest.startsWith('plural')) {
+  if (!match || !match[1]) {
     return { type: 'plural', value, options: {} }
   }
 
-  let body = trimmedRest.slice('plural'.length).trim()
+  const type = match[1] as FormatSegment['type']
+  let body = trimmedRest.slice(match[0].length).trim()
   if (body.startsWith(',')) {
     body = body.slice(1).trimStart()
   }
@@ -186,7 +203,7 @@ function parsePlural(content: string): PluralSegment {
 
     const category = categoryMatch[1]
 
-    if (!validCategories.has(category) && !category.startsWith('=')) {
+    if (type !== 'select' && !validCategories.has(category) && !category.startsWith('=')) {
       break
     }
 
@@ -209,7 +226,7 @@ function parsePlural(content: string): PluralSegment {
   }
 
   return {
-    type: 'plural',
+    type,
     value,
     options
   }
