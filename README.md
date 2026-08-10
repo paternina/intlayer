@@ -8,6 +8,9 @@ A lightweight, framework-agnostic internationalization runtime for JavaScript an
 - Cached path resolvers (LRU cache prevents memory leaks)
 - Interpolation templates with character escaping (`\\{`, `\\}`)
 - ICU-style plural support with exact matches (`=0`) and locale-aware rules
+- ICU number/date/time/duration arguments inside messages (`{price, number, currency}`), with skeletons and named formats
+- Duration formatting (`i18n.duration()`) with an automatic fallback when `Intl.DurationFormat` is unavailable
+- Build-time ICU message validation (`validateMessages`)
 - Locale switching with subscriptions
 - Lazy locale loading with cache
 - Fallback locale resolution with automatic base-locale fallback (e.g. `en-US` → `en`) and deduplication
@@ -58,8 +61,11 @@ console.log(i18n.getDirection()) // 'ltr' or 'rtl'
 - `i18n.number(value, options)`
 - `i18n.date(value, options)`
 - `i18n.relativeTime(value, unit, options)`
+- `i18n.duration(value, options)` — format a duration
 - `i18n.mergeMessages(messages)` — merge translations at runtime
 - `i18n.has(key)` — check if translation exists
+- `validateMessages(messages, options)` — lint ICU syntax
+- `assertValidMessages(messages, options)` — throw on invalid ICU syntax
 - `isRTL(locale)`
 - `setRTL(locales)` — replace the RTL language list
 - `addRTL(...locales)` — add locales to RTL list
@@ -75,6 +81,79 @@ console.log(i18n.getDirection()) // 'ltr' or 'rtl'
 | `loaders` | `Record<string, () => Promise<Messages>>` | — | Lazy locale loaders |
 | `warnOnMissingKey` | `boolean` | `false` | Log missing keys to console (dev) |
 | `loaderTimeout` | `number` (ms) | `0` (disabled) | Timeout for slow loaders |
+| `formats` | `CustomFormats` | — | Named `number`/`date`/`time`/`duration` formats usable inside messages |
+| `defaultCurrency` | `string` | `'USD'` | Currency used by the `currency` number style |
+| `timeZone` | `string` | — | Default time zone for `date`/`time` arguments and `i18n.date()` |
+| `localeMap` | `boolean` | auto-detected | Force `messages` to be read as a locale map (`true`) or a flat catalog (`false`) |
+
+### Inline number, date and time formatting
+
+Format values inside a message so the whole sentence stays translatable:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  defaultCurrency: 'USD',
+  timeZone: 'UTC',
+  messages: {
+    en: {
+      receipt: 'You paid {total, number, currency} on {when, date, long}',
+      stats: '{views, number, ::compact-short} views ({rate, number, percent})'
+    }
+  }
+})
+
+i18n.t('receipt', { total: 42.5, when: new Date('2026-06-20T12:00:00Z') })
+// You paid $42.50 on June 20, 2026
+
+i18n.t('stats', { views: 12500, rate: 0.256 })
+// 13K views (26%)
+```
+
+Built-in styles are `integer`, `percent` and `currency` for numbers, and `short`, `medium`, `long`, `full` for dates and times. `::` prefixes an ICU skeleton (`::currency/EUR`, `::compact-long`, `::yyyyMMdd`). Define your own reusable styles with `formats`:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  formats: {
+    number: { budget: { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 } }
+  },
+  messages: { en: { budget: 'Budget: {value, number, budget}' } }
+})
+
+i18n.t('budget', { value: 1999.4 }) // Budget: £1,999
+```
+
+### Durations
+
+Format a number of seconds or an explicit unit record, either standalone or inside a message:
+
+```ts
+i18n.duration(3661)                        // 1:01:01
+i18n.duration(90, { style: 'long' })       // 1 minute, 30 seconds
+i18n.t('eta', { time: 90 })                // from '{time, duration}'
+```
+
+Styles are `digital` (default), `narrow`, `short` and `long`. `Intl.DurationFormat` is used when the runtime provides it, with a locale-aware fallback that produces identical output elsewhere.
+
+### Validating messages
+
+Catch malformed ICU syntax in CI or a build step instead of at render time:
+
+```ts
+import { validateMessages, assertValidMessages } from '@paternina/intlayer'
+
+const { valid, issues } = validateMessages({
+  en: { items: '{count, plural, one {# item}}' }
+})
+
+// valid === false
+// issues[0] === { code: 'missing-other', key: 'items', locale: 'en', ... }
+
+assertValidMessages(messages) // throws when invalid
+```
+
+It reports unbalanced braces, unknown argument types and styles, invalid or duplicate plural branches, a missing `other` branch, and bad skeleton tokens.
 
 ## Examples
 

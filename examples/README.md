@@ -5,10 +5,10 @@ This directory contains a progressive set of examples demonstrating how to use i
 ## Structure
 
 - `basic/` - Introduction to core features: simple translation, interpolation, pluralization, has() check.
-- `advanced/` - More sophisticated usage: fallback chains, async loading, locale switching, formatting, nested messages, locale-aware pluralization.
+- `advanced/` - More sophisticated usage: fallback chains, async loading, locale switching, formatting, nested messages, locale-aware pluralization, inline ICU formatting, durations.
 - `ssr/` - Server-side rendering examples with Express and React.
 - `framework/` - Bindings for popular frameworks: React hook, Vue composable, Svelte store.
-- `testing/` - Guidance on unit testing with intlayer (Jest and Vitest examples).
+- `testing/` - Guidance on unit testing with intlayer (Jest and Vitest examples) and build-time message validation.
 
 ## Running Examples
 

@@ -48,9 +48,14 @@ console.log(isRTL('ar'))
 - `i18n.date(value, options)`
 - `i18n.relativeTime(value, unit, options)`
 - `i18n.list(value, options)`
+- `i18n.duration(value, options)`
 - `i18n.compare(a, b, options)`
 - `i18n.mergeMessages(messages)` — merge translations at runtime
 - `i18n.has(key)` — check if translation exists
+- `validateMessages(messages, options)` — lint ICU message syntax
+- `validateMessage(message, options)` — lint a single message
+- `assertValidMessages(messages, options)` — throw when a catalog is invalid
+- `formatIssues(issues)` — render issues as readable lines
 - `isRTL(locale)`
 
 ### Options
@@ -64,6 +69,10 @@ console.log(isRTL('ar'))
 | `warnOnMissingKey` | `boolean` | `false` | Log missing keys to console (dev) |
 | `onMissingKey` | `(key, locale) => string` | — | Custom missing-key value |
 | `loaderTimeout` | `number` (ms) | `0` (disabled) | Timeout for slow loaders |
+| `formats` | `CustomFormats` | — | Named `number`/`date`/`time`/`duration` formats usable inside messages |
+| `defaultCurrency` | `string` | `'USD'` | Currency used by the `currency` number style |
+| `timeZone` | `string` | — | Default time zone for `date`/`time` arguments and `i18n.date()` |
+| `localeMap` | `boolean` | auto-detected | Force `messages` to be read as a locale map (`true`) or a flat catalog (`false`) |
 
 ## Messages and pluralization
 
@@ -164,6 +173,240 @@ console.log(i18n.t('rank', { place: 2 })) // 2nd
 console.log(i18n.t('rank', { place: 3 })) // 3rd
 ```
 
+### Number, date and time arguments
+
+Values can be formatted directly inside a message, so translators keep control of the whole sentence instead of receiving pre-formatted fragments:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  defaultCurrency: 'USD',
+  timeZone: 'UTC',
+  messages: {
+    en: {
+      receipt: 'You paid {total, number, currency} on {when, date, long}',
+      meeting: 'Starts at {when, time, short}'
+    }
+  }
+})
+
+const when = new Date('2026-06-20T15:00:00Z')
+
+console.log(i18n.t('receipt', { total: 42.5, when })) // You paid $42.50 on June 20, 2026
+console.log(i18n.t('meeting', { when })) // Starts at 3:00 PM
+```
+
+The argument syntax is `{name, type, style}` where `type` is `number`, `date`, `time` or `duration`. The `style` is optional.
+
+#### Built-in styles
+
+| Type | Styles | Default |
+|------|--------|---------|
+| `number` | `integer`, `percent`, `currency` | plain locale-formatted number |
+| `date` | `short`, `medium`, `long`, `full` | `medium` |
+| `time` | `short`, `medium`, `long`, `full` | `medium` |
+| `duration` | `digital`, `narrow`, `short`, `long` | `digital` |
+
+The `currency` style uses the `defaultCurrency` option (`USD` when unset).
+
+#### Skeletons
+
+Prefix a style with `::` to use an ICU-style skeleton:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  timeZone: 'UTC',
+  messages: {
+    en: {
+      price: '{value, number, ::currency/EUR}',
+      views: '{value, number, ::compact-short}',
+      exact: '{value, number, ::.00}',
+      day: '{when, date, ::yyyyMMdd}',
+      clock: '{when, time, ::HHmm}'
+    }
+  }
+})
+
+i18n.t('price', { value: 9.5 })   // €9.50
+i18n.t('views', { value: 12500 }) // 13K
+i18n.t('exact', { value: 3.1 })   // 3.10
+```
+
+Supported number skeleton tokens include `percent`, `currency/XXX`, `unit/xxx`, `compact-short`, `compact-long`, `scientific`, `engineering`, `precision-integer`, `group-off`, `group-auto`, `sign-always`, `sign-never`, `sign-except-zero`, `sign-accounting`, `integer-width/000` and fraction patterns such as `.00` or `.0#`. Multiple tokens can be combined with spaces (`::currency/JPY precision-integer`).
+
+Date and time skeletons accept the usual field symbols: `y`, `M`/`MMM`/`MMMM`, `d`, `E`/`EEEE`, `h`/`H`, `m`, `s`, `z`.
+
+#### Named formats
+
+Register reusable styles once with the `formats` option and reference them by name. Named formats take precedence over the built-in style names, so you can customise `currency` or `short` globally:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  formats: {
+    number: { budget: { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 } },
+    date: { compact: { year: 'numeric', month: 'short' } },
+    time: { tokyo: { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' } }
+  },
+  messages: {
+    en: {
+      budget: 'Budget: {value, number, budget}',
+      period: 'Period: {when, date, compact}'
+    }
+  }
+})
+
+i18n.t('budget', { value: 1999.4 }) // Budget: £1,999
+```
+
+Arguments also work inside `plural` and `select` branches, and `#` can be formatted like any other value:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  defaultCurrency: 'USD',
+  messages: {
+    en: {
+      cart: '{count, plural, one {# item for {total, number, currency}} other {# items for {total, number, currency}}}',
+      views: '{count, plural, other {{#, number, ::compact-short} views}}'
+    }
+  }
+})
+
+i18n.t('cart', { count: 3, total: 28.25 }) // 3 items for $28.25
+i18n.t('views', { count: 12500 })          // 13K views
+```
+
+Formatting is resilient: a missing value renders an empty string, an unknown style name falls back to the plain locale format, and a value that cannot be parsed as a number or date is rendered verbatim. No exception is thrown at render time.
+
+Escape the braces to show the syntax literally:
+
+```ts
+i18n.t('doc') // from 'Write \\{price, number, currency\\} to format money'
+```
+
+### Durations
+
+Durations accept either a number of seconds or an explicit record of `days`, `hours`, `minutes` and `seconds`:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: {
+    en: {
+      eta: 'Ready in {time, duration}',
+      elapsed: 'Took {time, duration, long}'
+    }
+  }
+})
+
+console.log(i18n.t('eta', { time: 90 }))                       // Ready in 0:01:30
+console.log(i18n.t('elapsed', { time: 3661 }))                 // Took 1 hour, 1 minute, 1 second
+console.log(i18n.t('eta', { time: { hours: 2, minutes: 5 } })) // Ready in 2:05:00
+```
+
+The same formatting is available directly:
+
+```ts
+i18n.duration(3661)                     // 1:01:01
+i18n.duration(90, { style: 'long' })    // 1 minute, 30 seconds
+i18n.duration(90, { style: 'narrow' })  // 1m 30s
+i18n.duration({ hours: 1 }, { style: 'long' }, 'es') // 1 hora
+```
+
+`i18n.duration(value, options?, locale?)` mirrors the other formatting helpers. Negative values are prefixed with `-`, a zero duration renders explicitly (`0:00:00`), and non-finite input returns an empty string.
+
+Duration formatting uses `Intl.DurationFormat` where the runtime provides it (Node 23+, recent browsers) and otherwise falls back to `Intl.NumberFormat` unit styles combined with `Intl.ListFormat`. Both paths are verified to produce identical output, so behaviour does not change with the runtime.
+
+Named duration formats work like the other types:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  formats: { duration: { verbose: { style: 'long' } } },
+  messages: { en: { elapsed: '{time, duration, verbose}' } }
+})
+```
+
+## Validating messages
+
+A malformed ICU message is easy to introduce and, by design, the runtime never throws for one — it degrades gracefully. `validateMessages` lets you catch these problems in CI or a build step instead:
+
+```ts
+import { validateMessages } from '@paternina/intlayer'
+
+const result = validateMessages({
+  en: {
+    items: '{count, plural, one {# item}}',
+    price: '{value, number, monetary}'
+  }
+})
+
+console.log(result.valid) // false
+console.log(result.issues)
+// [
+//   { code: 'missing-other', key: 'items', locale: 'en', offset: 0, message: '...' },
+//   { code: 'unknown-style', key: 'price', locale: 'en', offset: 0, message: '...' }
+// ]
+```
+
+Locale maps are detected automatically, so `issues[].locale` is populated for `{ en: {...}, es: {...} }` catalogs and omitted for flat ones. Nested keys are reported as dotted paths (`auth.login.title`) and array items with indices (`items[1]`).
+
+### Failing a build
+
+```ts
+import { assertValidMessages } from '@paternina/intlayer'
+import messages from './locales/en.json'
+
+assertValidMessages(messages) // throws an Error listing every issue
+```
+
+Or format the issues yourself:
+
+```ts
+import { validateMessages, formatIssues } from '@paternina/intlayer'
+
+const { valid, issues } = validateMessages(messages)
+
+if (!valid) {
+  console.error(formatIssues(issues))
+  process.exit(1)
+}
+```
+
+### Detected problems
+
+| Code | Description |
+|------|-------------|
+| `unbalanced-brace` | Unclosed `{`, or an unescaped stray `}` |
+| `empty-placeholder` | `{}` with no content |
+| `invalid-argument-name` | Missing name, or a name containing whitespace |
+| `unknown-argument-type` | Type other than `number`, `date`, `time`, `duration`, `plural`, `select`, `selectordinal` |
+| `malformed-argument` | Argument that cannot be parsed |
+| `malformed-block` | Block with no branches, a missing comma, or a branch without a body |
+| `invalid-branch` | Plural branch that is not a CLDR category or a valid `=` exact match |
+| `duplicate-branch` | Same branch declared twice |
+| `missing-other` | `plural`, `select` or `selectordinal` without the required `other` branch |
+| `unknown-style` | Style name that is neither built-in nor a registered named format |
+| `empty-style` | Trailing comma with no style |
+| `empty-skeleton` | `::` with nothing after it |
+| `unknown-skeleton-token` | Unrecognised skeleton token |
+| `hash-outside-plural` | `#` used outside a plural block (only with `strictHash`) |
+
+### Options
+
+Pass the same `formats` you give `createI18n` so named formats are recognised, and enable `strictHash` to flag a literal `#` outside plural blocks:
+
+```ts
+validateMessages(messages, {
+  formats: { number: { budget: { style: 'currency', currency: 'GBP' } } },
+  strictHash: true
+})
+```
+
+`validateMessage(message, options)` validates a single string and returns the issue list directly, which is useful in unit tests.
+
 ## Locale switching and subscriptions
 
 ```ts
@@ -230,6 +473,68 @@ i18n.mergeMessages({
 // or merge into an existing locale
 i18n.mergeMessages({
   en: { newKey: 'New translation' }
+})
+```
+
+Patches are merged deeply and may be partial — you only pass the keys you want to change, even when using typed keys:
+
+```ts
+const i18n = createI18n<'auth.login.title' | 'auth.login.button'>({
+  locale: 'en',
+  messages: { en: { auth: { login: { title: 'Login', button: 'Go' } } } }
+})
+
+// Only `title` is replaced; `button` is preserved.
+i18n.mergeMessages({ en: { auth: { login: { title: 'Sign in' } } } })
+```
+
+Unknown keys are still rejected at compile time, so partial patches do not weaken key safety.
+
+### Flat catalogs vs locale maps
+
+`messages` accepts either a flat catalog for the active locale or a map of locales:
+
+```ts
+// flat - belongs to `locale`
+createI18n({ locale: 'en', messages: { hello: 'Hello' } })
+
+// locale map
+createI18n({ locale: 'en', messages: { en: { hello: 'Hello' }, es: { hello: 'Hola' } } })
+```
+
+The two shapes are distinguished by checking whether the top-level keys look like locale codes **and** at least one of them is a locale the instance actually knows about — that is, the active locale, an entry in the fallback chain, or a declared loader.
+
+This matters because plenty of ordinary namespaces are also valid language codes (`id`, `no`, `it`, `is`, `as`, `ok`). A catalog like the following is correctly treated as flat:
+
+```ts
+const i18n = createI18n({
+  locale: 'en',
+  messages: { id: { label: 'Identifier' } }
+})
+
+i18n.t('id.label') // Identifier
+```
+
+If your catalog is genuinely ambiguous, set `localeMap` explicitly:
+
+```ts
+// Force locale-map interpretation
+createI18n({ locale: 'id', messages: { id: { label: 'Nilai' } }, localeMap: true })
+
+// Force flat interpretation, even though `en` matches the active locale
+createI18n({ locale: 'en', messages: { en: { nested: 'Value' } }, localeMap: false })
+```
+
+Locales may also be partially translated — that is the purpose of `fallbackLocale`, and the types allow it:
+
+```ts
+createI18n<'hello' | 'bye'>({
+  locale: 'en',
+  fallbackLocale: 'en',
+  messages: {
+    en: { hello: 'Hello', bye: 'Bye' },
+    es: { hello: 'Hola' } // `bye` falls back to English
+  }
 })
 ```
 

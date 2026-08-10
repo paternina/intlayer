@@ -1,25 +1,14 @@
 import { compileMessage } from '../core/compile'
+import type { FormatContext } from '../core/compile'
+import { formatDuration } from '../core/duration'
 import { resolve } from '../core/resolve'
 import { isRTL } from '../utils/rtl'
-import type { I18nInstance, I18nOptions, LoaderMap, Messages, MessagesFromKeys } from '../types'
+import type { DurationInput, DurationOptions, I18nInstance, I18nOptions, LoaderMap, Messages, PartialMessagesFromKeys } from '../types'
 import { LRUCache } from '../utils/lru'
-
-type IntlOptions = Record<string, unknown> | Intl.NumberFormatOptions | Intl.DateTimeFormatOptions | Intl.RelativeTimeFormatOptions | Intl.ListFormatOptions | Intl.CollatorOptions
+import { buildIntlCacheKey } from '../utils/intl'
 
 const localeKey = /^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/i
 const normalizeLocaleName = (locale: string) => locale.trim().replace(/_/g, '-').toLowerCase()
-
-function buildIntlCacheKey(locale: string, options?: IntlOptions): string {
-  if (!options || Object.keys(options as Record<string, unknown>).length === 0) {
-    return locale
-  }
-  const keys = Object.keys(options as Record<string, unknown>).sort()
-  const parts: string[] = [locale]
-  for (const key of keys) {
-    parts.push(`${key}=${(options as Record<string, unknown>)[key]}`)
-  }
-  return parts.join('&')
-}
 
 function deepMerge(target: Messages, source: Messages): Messages {
   const result: Messages = { ...target }
@@ -65,12 +54,20 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
   const warnOnMissingKey = options.warnOnMissingKey ?? false
   const onMissingKey = options.onMissingKey
   const loaderTimeout = options.loaderTimeout ?? 0
+  const defaultTimeZone = options.timeZone
   const loaders: LoaderMap = options.loaders ?? {}
   const loaded = new Map<string, Messages>()
   const pending = new Map<string, Promise<boolean>>()
   const listeners = new Set<(locale: string) => void>()
+  const explicitLocaleMap = options.localeMap
   let currentLocale = locale
   let destroyed = false
+
+  const knownLocales = new Set<string>([
+    normalizeLocaleName(locale),
+    ...fallbackLocale.map(normalizeLocaleName),
+    ...Object.keys(loaders).map(normalizeLocaleName)
+  ])
 
   const numberFormatCache = new LRUCache<string, Intl.NumberFormat>(1000)
   const dateTimeFormatCache = new LRUCache<string, Intl.DateTimeFormat>(1000)
@@ -79,14 +76,55 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
   const collatorCache = new LRUCache<string, Intl.Collator>(1000)
   const pluralRulesCache = new LRUCache<string, Intl.PluralRules>(1000)
 
-  function isLocaleMap(value: unknown): value is Record<string, MessagesFromKeys<T>> {
-    return (
-      typeof value === 'object' &&
-      value !== null &&
-      Object.keys(value).length > 0 &&
-      Object.keys(value).every((key) => localeKey.test(key)) &&
-      Object.values(value).every((item) => typeof item === 'object' && item !== null)
-    )
+  const durationFormatCache = new LRUCache<string, { format: (value: Record<string, number>) => string }>(1000)
+
+  const formatContext: FormatContext = {
+    pluralRules: pluralRulesCache,
+    numberFormat: numberFormatCache,
+    dateTimeFormat: dateTimeFormatCache,
+    listFormat: listFormatCache,
+    durationFormat: durationFormatCache,
+    ...(options.formats ? { formats: options.formats } : {}),
+    ...(options.defaultCurrency ? { defaultCurrency: options.defaultCurrency } : {}),
+    ...(options.timeZone ? { timeZone: options.timeZone } : {})
+  }
+
+  function isKnownLocale(name: string): boolean {
+    const normalized = normalizeLocaleName(name)
+
+    if (knownLocales.has(normalized)) {
+      return true
+    }
+
+    for (const key of loaded.keys()) {
+      if (normalizeLocaleName(key) === normalized) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  function isLocaleMap(value: unknown): value is Record<string, Messages> {
+    if (explicitLocaleMap !== undefined) {
+      return explicitLocaleMap && typeof value === 'object' && value !== null && !Array.isArray(value)
+    }
+
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const keys = Object.keys(value)
+
+      return (
+        keys.length > 0 &&
+        keys.every((key) => localeKey.test(key)) &&
+        keys.every((key) => {
+          const item = (value as Record<string, unknown>)[key]
+          return typeof item === 'object' && item !== null && !Array.isArray(item)
+        }) &&
+        keys.some(isKnownLocale)
+      )
+    }
+
+    return false
   }
 
   const initialMessages = options.messages ?? {}
@@ -266,10 +304,15 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
         : warnOnMissingKey
           ? (console.warn(`[intlayer] Missing translation key: "${key}" for locale "${currentLocale}"`), undefined)
           : undefined
-      return defaultValue ?? missingValue ?? key
+
+      if (defaultValue === undefined) {
+        return missingValue ?? key
+      }
+
+      source = defaultValue
     }
 
-    return compileMessage(source, pluralRulesCache)(values, sourceLocale)
+    return compileMessage(source)(values, sourceLocale, formatContext)
   }
 
   function hasTranslation(key: T): boolean {
@@ -325,6 +368,7 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
     listFormatCache.clear()
     collatorCache.clear()
     pluralRulesCache.clear()
+    durationFormatCache.clear()
     destroyed = true
   }
 
@@ -345,10 +389,13 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
 
   function formatDate(value: Date | number | string, options?: Intl.DateTimeFormatOptions, localeOverride?: string) {
     const locale = localeOverride ?? currentLocale
-    const key = buildIntlCacheKey(locale, options)
+    const effectiveOptions = defaultTimeZone && options?.timeZone === undefined
+      ? { ...options, timeZone: defaultTimeZone }
+      : options
+    const key = buildIntlCacheKey(locale, effectiveOptions)
     let formatter = dateTimeFormatCache.get(key)
     if (!formatter) {
-      formatter = new Intl.DateTimeFormat(locale, options)
+      formatter = new Intl.DateTimeFormat(locale, effectiveOptions)
       dateTimeFormatCache.set(key, formatter)
     }
     const date = typeof value === 'string' ? new Date(value) : value
@@ -382,6 +429,16 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
     return formatter.format(value)
   }
 
+  function formatDurationValue(value: DurationInput, options?: DurationOptions, localeOverride?: string) {
+    const locale = localeOverride ?? currentLocale
+
+    return formatDuration(value, locale, options?.style ?? 'digital', {
+      duration: durationFormatCache,
+      number: numberFormatCache,
+      list: listFormatCache
+    })
+  }
+
   function compareValues(a: string, b: string, options?: Intl.CollatorOptions, localeOverride?: string) {
     const locale = localeOverride ?? currentLocale
     const key = buildIntlCacheKey(locale, options)
@@ -393,7 +450,7 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
     return formatter.compare(a, b)
   }
 
-  function mergeMessages(messages: MessagesFromKeys<T> | Record<string, MessagesFromKeys<T>>) {
+  function mergeMessages(messages: PartialMessagesFromKeys<T> | Record<string, PartialMessagesFromKeys<T>>) {
     if (isLocaleMap(messages)) {
       for (const [name, msgs] of Object.entries(messages)) {
         if (typeof msgs === 'object' && msgs !== null) {
@@ -428,6 +485,7 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
     date: formatDate,
     relativeTime: formatRelativeTime,
     list: formatList,
+    duration: formatDurationValue,
     compare: compareValues,
     mergeMessages,
     has: hasTranslation,

@@ -186,7 +186,7 @@ describe('intlayer', () => {
     expect(i18n.t('hello')).toBe('Hello')
 
     i18n.mergeMessages({
-      en: { world: 'World', deep: { b: 'B' } } as any
+      en: { world: 'World', deep: { b: 'B' } }
     })
 
     expect(i18n.t('hello')).toBe('Hello')
@@ -375,7 +375,7 @@ describe('intlayer', () => {
     i18n.subscribe(listener)
 
     i18n.mergeMessages({
-      en: { world: 'World' } as any
+      en: { world: 'World' }
     })
 
     expect(listener).toHaveBeenCalledTimes(1)
@@ -388,7 +388,17 @@ describe('intlayer', () => {
       messages: { en: { missing: 'Hello {name}' } }
     })
 
-    expect(i18n.t('missing' as any, { name: 'Ana' }, 'Fallback')).toBe('Hello Ana')
+    expect(i18n.t('missing', { name: 'Ana' }, 'Fallback')).toBe('Hello Ana')
+  })
+
+  it('interpolates the default value when the key is missing', () => {
+    const i18n = createI18n({
+      locale: 'en',
+      messages: { en: {} }
+    })
+
+    expect(i18n.t('missing', { name: 'Jane' }, 'Hello {name}')).toBe('Hello Jane')
+    expect(i18n.t('missing', 'Plain default')).toBe('Plain default')
   })
 
   it('uses onMissingKey before falling back to the key', () => {
@@ -398,8 +408,8 @@ describe('intlayer', () => {
       onMissingKey: (key) => `Missing ${key}`
     })
 
-    expect(i18n.t('missing' as any, 'Fallback')).toBe('Fallback')
-    expect(i18n.t('missing' as any)).toBe('Missing missing')
+    expect(i18n.t('missing', 'Fallback')).toBe('Fallback')
+    expect(i18n.t('missing')).toBe('Missing missing')
   })
 
   it('loads and exposes locale management helpers', async () => {
@@ -444,7 +454,7 @@ describe('intlayer', () => {
       }
     })
 
-    expect(i18n.t('hello' as any)).toBe('你好')
+    expect(i18n.t('hello')).toBe('你好')
     expect(i18n.getFallbackLocale()).toEqual(['zh'])
   })
 
@@ -458,8 +468,8 @@ describe('intlayer', () => {
       }
     })
 
-    expect(i18n.t('owner' as any, { gender: 'female' })).toBe('She owns it')
-    expect(i18n.t('owner' as any, { gender: 'unknown' })).toBe('They own it')
+    expect(i18n.t('owner', { gender: 'female' })).toBe('She owns it')
+    expect(i18n.t('owner', { gender: 'unknown' })).toBe('They own it')
   })
 
   it('supports ICU selectordinal blocks', () => {
@@ -472,10 +482,10 @@ describe('intlayer', () => {
       }
     })
 
-    expect(i18n.t('rank' as any, { place: 1 })).toBe('1st')
-    expect(i18n.t('rank' as any, { place: 2 })).toBe('2nd')
-    expect(i18n.t('rank' as any, { place: 3 })).toBe('3rd')
-    expect(i18n.t('rank' as any, { place: 4 })).toBe('4th')
+    expect(i18n.t('rank', { place: 1 })).toBe('1st')
+    expect(i18n.t('rank', { place: 2 })).toBe('2nd')
+    expect(i18n.t('rank', { place: 3 })).toBe('3rd')
+    expect(i18n.t('rank', { place: 4 })).toBe('4th')
   })
 
   it('formats lists with Intl.ListFormat', () => {

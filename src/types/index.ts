@@ -26,20 +26,92 @@ type PathToMessages<T, P extends string> =
 
 export type MessagesFromKeys<T extends string = string> = string extends T ? Messages : MergeUnion<PathToMessages<string, T>>
 
+export type DeepPartial<T> = T extends string
+  ? T
+  : T extends readonly (infer U)[]
+    ? ReadonlyArray<DeepPartial<U>> | Array<DeepPartial<U>>
+    : T extends object
+      ? { [K in keyof T]?: DeepPartial<T[K]> }
+      : T
+
+export type PartialMessagesFromKeys<T extends string = string> = string extends T
+  ? Messages
+  : DeepPartial<MessagesFromKeys<T>>
+
 export type LocaleLoader = () => Promise<Messages>
 
 export type LoaderMap = Record<string, LocaleLoader>
 
 export type MissingKeyHandler = (key: string, locale: string) => string
 
+export type DurationStyle = 'digital' | 'narrow' | 'short' | 'long'
+
+export interface DurationRecord {
+  days?: number
+  hours?: number
+  minutes?: number
+  seconds?: number
+}
+
+export type DurationInput = number | DurationRecord
+
+export interface DurationOptions {
+  style?: DurationStyle
+}
+
+export interface CustomFormats {
+  number?: Record<string, Intl.NumberFormatOptions>
+  date?: Record<string, Intl.DateTimeFormatOptions>
+  time?: Record<string, Intl.DateTimeFormatOptions>
+  duration?: Record<string, DurationOptions>
+}
+
+export type MessageIssueCode =
+  | 'unbalanced-brace'
+  | 'empty-placeholder'
+  | 'invalid-argument-name'
+  | 'unknown-argument-type'
+  | 'malformed-argument'
+  | 'malformed-block'
+  | 'invalid-branch'
+  | 'duplicate-branch'
+  | 'missing-other'
+  | 'unknown-style'
+  | 'empty-style'
+  | 'empty-skeleton'
+  | 'unknown-skeleton-token'
+  | 'hash-outside-plural'
+
+export interface MessageIssue {
+  code: MessageIssueCode
+  message: string
+  key: string
+  locale?: string
+  offset: number
+}
+
+export interface ValidateMessagesOptions {
+  formats?: CustomFormats
+  strictHash?: boolean
+}
+
+export interface ValidationResult {
+  valid: boolean
+  issues: MessageIssue[]
+}
+
 export interface I18nOptions<T extends string = string> {
   locale: string
   fallbackLocale?: string | string[]
-  messages?: MessagesFromKeys<T> | Record<string, MessagesFromKeys<T>>
+  messages?: MessagesFromKeys<T> | Record<string, PartialMessagesFromKeys<T>>
   loaders?: LoaderMap
   warnOnMissingKey?: boolean
   onMissingKey?: MissingKeyHandler
   loaderTimeout?: number
+  formats?: CustomFormats
+  defaultCurrency?: string
+  timeZone?: string
+  localeMap?: boolean
 }
 
 export type TranslateFunction<T extends string = string> = {
@@ -60,8 +132,9 @@ export interface I18nInstance<T extends string = string> {
   date: (value: Date | number | string, options?: Intl.DateTimeFormatOptions, locale?: string) => string
   relativeTime: (value: number, unit: Intl.RelativeTimeFormatUnit, options?: Intl.RelativeTimeFormatOptions, locale?: string) => string
   list: (value: readonly string[], options?: Intl.ListFormatOptions, locale?: string) => string
+  duration: (value: DurationInput, options?: DurationOptions, locale?: string) => string
   compare: (a: string, b: string, options?: Intl.CollatorOptions, locale?: string) => number
-  mergeMessages: (messages: MessagesFromKeys<T> | Record<string, MessagesFromKeys<T>>) => void
+  mergeMessages: (messages: PartialMessagesFromKeys<T> | Record<string, PartialMessagesFromKeys<T>>) => void
   has: (key: T) => boolean
   loadLocale: (locale: string) => Promise<boolean>
   loadLocales: (locales: readonly string[]) => Promise<boolean[]>

@@ -1,6 +1,6 @@
 {
   "name": "@paternina/intlayer",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "private": false,
   "description": "A tiny universal internationalization engine for JavaScript and TypeScript.",
@@ -17,6 +17,7 @@
   "files": [
     "dist"
   ],
+  "sideEffects": false,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/paternina/intlayer.git"

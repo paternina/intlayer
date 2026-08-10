@@ -1,94 +1,235 @@
 import { LRUCache } from '../utils/lru'
+import { getCachedFormatter } from '../utils/intl'
+import { resolveDateOptions, resolveNumberOptions } from './formats'
+import { formatDuration, resolveDurationOptions } from './duration'
+import type { CustomFormats, DurationInput, DurationRecord } from '../types'
 
-type Segment = TextSegment | VariableSegment | PluralSegment | SelectSegment | SelectOrdinalSegment
+type Segment =
+  | TextSegment
+  | VariableSegment
+  | PluralSegment
+  | SelectSegment
+  | SelectOrdinalSegment
+  | NumberSegment
+  | DateSegment
+  | TimeSegment
+  | DurationSegment
 
 type TextSegment = { type: 'text'; value: string }
 type VariableSegment = { type: 'variable'; name: string }
 type PluralSegment = { type: 'plural'; value: string; options: Record<string, Segment[]> }
 type SelectSegment = { type: 'select'; value: string; options: Record<string, Segment[]> }
 type SelectOrdinalSegment = { type: 'selectordinal'; value: string; options: Record<string, Segment[]> }
+type NumberSegment = { type: 'number'; value: string; style?: string }
+type DateSegment = { type: 'date'; value: string; style?: string }
+type TimeSegment = { type: 'time'; value: string; style?: string }
+type DurationSegment = { type: 'duration'; value: string; style?: string }
 type FormatSegment = PluralSegment | SelectSegment | SelectOrdinalSegment
+type ArgumentSegment = NumberSegment | DateSegment | TimeSegment | DurationSegment
 
-const compileCache = new LRUCache<string, (data?: Record<string, unknown>, locale?: string) => string>(1000)
-const defaultPluralRulesCache = new LRUCache<string, Intl.PluralRules>(1000)
+interface DurationFormatLike {
+  format: (value: Record<string, number>) => string
+}
 
-export function compileMessage(message: string, pluralRulesCache?: LRUCache<string, Intl.PluralRules>): (data?: Record<string, unknown>, locale?: string) => string {
-  const cached = compileCache.get(message)
+export interface FormatContext {
+  pluralRules: LRUCache<string, Intl.PluralRules>
+  numberFormat: LRUCache<string, Intl.NumberFormat>
+  dateTimeFormat: LRUCache<string, Intl.DateTimeFormat>
+  listFormat?: LRUCache<string, Intl.ListFormat>
+  durationFormat?: LRUCache<string, DurationFormatLike>
+  formats?: CustomFormats
+  defaultCurrency?: string
+  timeZone?: string
+}
 
-  if (cached) {
-    return cached
+export type CompiledMessage = (data?: Record<string, unknown>, locale?: string, context?: FormatContext) => string
+
+const astCache = new LRUCache<string, Segment[]>(1000)
+const defaultContext: FormatContext = {
+  pluralRules: new LRUCache<string, Intl.PluralRules>(1000),
+  numberFormat: new LRUCache<string, Intl.NumberFormat>(1000),
+  dateTimeFormat: new LRUCache<string, Intl.DateTimeFormat>(1000),
+  listFormat: new LRUCache<string, Intl.ListFormat>(1000),
+  durationFormat: new LRUCache<string, DurationFormatLike>(1000)
+}
+
+export function compileMessage(message: string, pluralRulesCache?: LRUCache<string, Intl.PluralRules>): CompiledMessage {
+  let segments = astCache.get(message)
+
+  if (!segments) {
+    segments = parseTemplate(message)
+    astCache.set(message, segments)
   }
 
-  const segments = parseTemplate(message)
-  const effectiveCache = pluralRulesCache ?? defaultPluralRulesCache
-  const fn = (data?: Record<string, unknown>, locale?: string): string => renderSegments(segments, data ?? {}, locale ?? 'en', effectiveCache)
+  const ast = segments
 
-  compileCache.set(message, fn)
-  return fn
+  return (data?: Record<string, unknown>, locale?: string, context?: FormatContext): string => {
+    const effectiveContext = context ?? (pluralRulesCache ? { ...defaultContext, pluralRules: pluralRulesCache } : defaultContext)
+    return renderSegments(ast, data ?? {}, locale ?? 'en', effectiveContext)
+  }
 }
 
 function renderSegments(
   segments: Segment[],
   data: Record<string, unknown>,
   locale: string,
-  pluralRulesCache?: LRUCache<string, Intl.PluralRules>,
+  context: FormatContext,
   pluralCount?: number
 ): string {
-  return segments
-    .map((segment) => {
-      if (segment.type === 'text') {
-        if (pluralCount == null) {
-          return segment.value
-        }
-        return segment.value.replace(/(^|[^\\])#/g, `$1${pluralCount}`).replace(/\\#/g, '#')
+  let output = ''
+
+  for (const segment of segments) {
+    if (segment.type === 'text') {
+      output += pluralCount == null
+        ? segment.value
+        : segment.value.replace(/(^|[^\\])#/g, `$1${pluralCount}`).replace(/\\#/g, '#')
+      continue
+    }
+
+    if (segment.type === 'variable') {
+      if (segment.name === '#') {
+        output += String(pluralCount ?? '')
+        continue
       }
 
-      if (segment.type === 'variable') {
-        if (segment.name === '#') {
-          return String(pluralCount ?? '')
-        }
+      const value = data[segment.name]
+      output += value == null ? '' : String(value)
+      continue
+    }
 
-        const value = data[segment.name]
-        return value == null ? '' : String(value)
+    if (segment.type === 'number' || segment.type === 'date' || segment.type === 'time' || segment.type === 'duration') {
+      output += renderArgument(segment, data, locale, context, pluralCount)
+      continue
+    }
+
+    if (segment.type === 'select') {
+      const rawValue = data[segment.value]
+      const option = segment.options[String(rawValue)] ?? segment.options.other
+
+      if (option) {
+        output += renderSegments(option, data, locale, context, pluralCount)
       }
 
-      if (segment.type === 'select') {
-        const rawValue = data[segment.value]
-        const option = segment.options[String(rawValue)] ?? segment.options.other
-        return option ? renderSegments(option, data, locale, pluralRulesCache, pluralCount) : ''
-      }
+      continue
+    }
 
-      if (segment.type === 'plural' || segment.type === 'selectordinal') {
-        const rawValue = data[segment.value]
-        const count = Number(rawValue ?? 0)
-        const exactMatch = `=${count}`
-        const option = segment.options[exactMatch] ?? getPluralOption(segment, count, locale, pluralRulesCache)
+    const rawValue = data[segment.value]
+    const count = Number(rawValue ?? 0)
+    const option = segment.options[`=${count}`] ?? getPluralOption(segment, count, locale, context)
 
-        if (!option) {
-          return ''
-        }
+    if (option) {
+      output += renderSegments(option, data, locale, context, count)
+    }
+  }
 
-        return renderSegments(option, data, locale, pluralRulesCache, count)
-      }
+  return output
+}
 
-      return ''
+function renderArgument(
+  segment: ArgumentSegment,
+  data: Record<string, unknown>,
+  locale: string,
+  context: FormatContext,
+  pluralCount?: number
+): string {
+  const raw = segment.value === '#' ? pluralCount : data[segment.value]
+
+  if (raw == null || raw === '') {
+    return ''
+  }
+
+  if (segment.type === 'number') {
+    const value = typeof raw === 'number' ? raw : Number(raw)
+
+    if (!Number.isFinite(value)) {
+      return String(raw)
+    }
+
+    const options = resolveNumberOptions(segment.style, context.formats, context.defaultCurrency)
+    const formatter = getCachedFormatter(context.numberFormat, locale, options, () => new Intl.NumberFormat(locale, options))
+
+    return formatter.format(value)
+  }
+
+  if (segment.type === 'duration') {
+    const input = toDurationInput(raw)
+
+    if (input === undefined) {
+      return String(raw)
+    }
+
+    const { style } = resolveDurationOptions(segment.style, context.formats)
+
+    return formatDuration(input, locale, style ?? 'digital', {
+      duration: context.durationFormat ?? defaultContext.durationFormat!,
+      number: context.numberFormat,
+      list: context.listFormat ?? defaultContext.listFormat!
     })
-    .join('')
+  }
+
+  const date = toDate(raw)
+
+  if (!date) {
+    return String(raw)
+  }
+
+  const resolved = resolveDateOptions(segment.style, context.formats, segment.type)
+  const options = context.timeZone && resolved && resolved.timeZone === undefined
+    ? { ...resolved, timeZone: context.timeZone }
+    : resolved
+  const formatter = getCachedFormatter(context.dateTimeFormat, locale, options, () => new Intl.DateTimeFormat(locale, options))
+
+  return formatter.format(date)
+}
+
+function toDurationInput(value: unknown): DurationInput | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const record = value as DurationRecord
+    const hasUnit = (['days', 'hours', 'minutes', 'seconds'] as const).some(
+      (unit) => typeof record[unit] === 'number' && Number.isFinite(record[unit])
+    )
+
+    return hasUnit ? record : undefined
+  }
+
+  return undefined
+}
+
+function toDate(value: unknown): Date | undefined {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value
+  }
+
+  if (typeof value === 'number' || typeof value === 'string') {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? undefined : date
+  }
+
+  return undefined
 }
 
 function getPluralOption(
   segment: Extract<Segment, { type: 'plural' | 'selectordinal' }>,
   count: number,
   locale: string,
-  pluralRulesCache?: LRUCache<string, Intl.PluralRules>
+  context: FormatContext
 ): Segment[] | undefined {
-  const effectiveCache = pluralRulesCache ?? defaultPluralRulesCache
-  const cacheKey = segment.type === 'selectordinal' ? `${locale}:ordinal` : locale
-  let rule = effectiveCache.get(cacheKey)
+  const ordinal = segment.type === 'selectordinal'
+  const cacheKey = ordinal ? `${locale}:ordinal` : locale
+  let rule = context.pluralRules.get(cacheKey)
 
   if (!rule) {
-    rule = new Intl.PluralRules(locale, segment.type === 'selectordinal' ? { type: 'ordinal' } : undefined)
-    effectiveCache.set(cacheKey, rule)
+    rule = new Intl.PluralRules(locale, ordinal ? { type: 'ordinal' } : undefined)
+    context.pluralRules.set(cacheKey, rule)
   }
 
   return segment.options[rule.select(count)] ?? segment.options.other
@@ -124,7 +265,8 @@ function parseTemplate(template: string): Segment[] {
       if (isFormatBlock(content)) {
         segments.push(parseFormat(content))
       } else {
-        segments.push({ type: 'variable', name: content })
+        const argument = parseArgument(content)
+        segments.push(argument ?? { type: 'variable', name: content })
       }
 
       cursor = end + 1
@@ -166,7 +308,25 @@ function findMatchingBrace(value: string, start: number) {
 }
 
 function isFormatBlock(content: string) {
-  return /^\w+,\s*(plural|select|selectordinal)\b/.test(content)
+  return /^[^,]+,\s*(plural|select|selectordinal)\b/.test(content)
+}
+
+function parseArgument(content: string): ArgumentSegment | undefined {
+  const match = content.match(/^([^,]+),\s*(number|date|time|duration)\s*(?:,([\s\S]*))?$/)
+
+  if (!match) {
+    return undefined
+  }
+
+  const value = match[1]?.trim() ?? ''
+  const type = match[2] as ArgumentSegment['type']
+  const style = match[3]?.trim()
+
+  if (!value) {
+    return undefined
+  }
+
+  return style ? { type, value, style } : { type, value }
 }
 
 function parseFormat(content: string): FormatSegment {
@@ -195,7 +355,7 @@ function parseFormat(content: string): FormatSegment {
       break
     }
 
-    const categoryMatch = body.slice(cursor).match(/^(=?\w+)/)
+    const categoryMatch = body.slice(cursor).match(/^(=?[\w-]+)/)
 
     if (!categoryMatch || !categoryMatch[1]) {
       break
