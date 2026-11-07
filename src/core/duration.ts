@@ -27,6 +27,7 @@ const secondsPerUnit: Record<(typeof unitOrder)[number], number> = {
   seconds: 1
 }
 
+/** The built-in duration style names. */
 export const durationStyles: readonly DurationStyle[] = ['digital', 'narrow', 'short', 'long']
 
 function getNativeDurationFormat(): NativeDurationFormatConstructor | undefined {
@@ -34,6 +35,7 @@ function getNativeDurationFormat(): NativeDurationFormatConstructor | undefined 
   return typeof candidate === 'function' ? candidate : undefined
 }
 
+/** Splits a duration into days/hours/minutes/seconds with absolute values, plus a `negative` flag. Non-finite numbers give an empty record. */
 export function normalizeDuration(value: DurationInput): { record: DurationRecord; negative: boolean } {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
@@ -154,6 +156,7 @@ function formatUnits(
   return listFormatter.format(parts)
 }
 
+/** Formats a duration, using `Intl.DurationFormat` when available and an `Intl.NumberFormat`/`ListFormat` fallback otherwise. */
 export function formatDuration(
   value: DurationInput,
   locale: string,
@@ -187,6 +190,7 @@ export function formatDuration(
   return negative && text ? `-${text}` : text
 }
 
+/** Resolves a message's duration style name (built-in or from `formats.duration`); unknown names give `digital`. */
 export function resolveDurationOptions(
   style: string | undefined,
   formats: CustomFormats | undefined

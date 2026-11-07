@@ -1,5 +1,6 @@
 import { LRUCache } from '../utils/lru'
 import { getCachedFormatter } from '../utils/intl'
+import { findClosingBrace, readApostrophe } from './scan'
 import { resolveDateOptions, resolveNumberOptions } from './formats'
 import { formatDuration, resolveDurationOptions } from './duration'
 import type { CustomFormats, DurationInput, DurationRecord } from '../types'
@@ -17,7 +18,7 @@ type Segment =
 
 type TextSegment = { type: 'text'; value: string }
 type VariableSegment = { type: 'variable'; name: string }
-type PluralSegment = { type: 'plural'; value: string; options: Record<string, Segment[]> }
+type PluralSegment = { type: 'plural'; value: string; options: Record<string, Segment[]>; offset?: number }
 type SelectSegment = { type: 'select'; value: string; options: Record<string, Segment[]> }
 type SelectOrdinalSegment = { type: 'selectordinal'; value: string; options: Record<string, Segment[]> }
 type NumberSegment = { type: 'number'; value: string; style?: string }
@@ -31,6 +32,7 @@ interface DurationFormatLike {
   format: (value: Record<string, number>) => string
 }
 
+/** Per-instance formatter caches and defaults used while rendering a message. */
 export interface FormatContext {
   pluralRules: LRUCache<string, Intl.PluralRules>
   numberFormat: LRUCache<string, Intl.NumberFormat>
@@ -42,9 +44,11 @@ export interface FormatContext {
   timeZone?: string
 }
 
+/** A parsed message ready to render with values, a locale and a {@link FormatContext}. */
 export type CompiledMessage = (data?: Record<string, unknown>, locale?: string, context?: FormatContext) => string
 
-const astCache = new LRUCache<string, Segment[]>(1000)
+// Parsed messages are pure and shared by every instance; the bound only matters for very large catalogs.
+const astCache = new LRUCache<string, Segment[]>(10000)
 const defaultContext: FormatContext = {
   pluralRules: new LRUCache<string, Intl.PluralRules>(1000),
   numberFormat: new LRUCache<string, Intl.NumberFormat>(1000),
@@ -53,6 +57,13 @@ const defaultContext: FormatContext = {
   durationFormat: new LRUCache<string, DurationFormatLike>(1000)
 }
 
+/**
+ * Parses an ICU-style message (the parsed form is cached) and returns a renderer for it.
+ *
+ * @param message - Message source, e.g. `"{n, plural, one {# item} other {# items}}"`.
+ * @param pluralRulesCache - Optional cache used when no `FormatContext` is passed to the renderer.
+ * @returns A function that renders the message from values, a locale (default `"en"`) and a context.
+ */
 export function compileMessage(message: string, pluralRulesCache?: LRUCache<string, Intl.PluralRules>): CompiledMessage {
   let segments = astCache.get(message)
 
@@ -82,13 +93,13 @@ function renderSegments(
     if (segment.type === 'text') {
       output += pluralCount == null
         ? segment.value
-        : segment.value.replace(/(^|[^\\])#/g, `$1${pluralCount}`).replace(/\\#/g, '#')
+        : segment.value.replace(/\\#|#/g, (match) => (match === '#' ? formatCount(pluralCount, locale, context) : '#'))
       continue
     }
 
     if (segment.type === 'variable') {
       if (segment.name === '#') {
-        output += String(pluralCount ?? '')
+        output += pluralCount == null ? '' : formatCount(pluralCount, locale, context)
         continue
       }
 
@@ -115,14 +126,20 @@ function renderSegments(
 
     const rawValue = data[segment.value]
     const count = Number(rawValue ?? 0)
-    const option = segment.options[`=${count}`] ?? getPluralOption(segment, count, locale, context)
+    // With `offset:N`, exact matches use the raw value; categories and `#` use the value minus the offset.
+    const shifted = count - (segment.type === 'plural' ? segment.offset ?? 0 : 0)
+    const option = segment.options[`=${count}`] ?? getPluralOption(segment, shifted, locale, context)
 
     if (option) {
-      output += renderSegments(option, data, locale, context, count)
+      output += renderSegments(option, data, locale, context, shifted)
     }
   }
 
   return output
+}
+
+function formatCount(count: number, locale: string, context: FormatContext): string {
+  return getCachedFormatter(context.numberFormat, locale, undefined, () => new Intl.NumberFormat(locale)).format(count)
 }
 
 function renderArgument(
@@ -235,7 +252,12 @@ function getPluralOption(
   return segment.options[rule.select(count)] ?? segment.options.other
 }
 
-function parseTemplate(template: string): Segment[] {
+/**
+ * Parses message text into segments.
+ *
+ * @param inPlural - True inside a plural/selectordinal branch, where `#` is the count and `'#'` quotes it.
+ */
+function parseTemplate(template: string, inPlural = false): Segment[] {
   const segments: Segment[] = []
   let cursor = 0
   let textBuffer = ''
@@ -247,13 +269,22 @@ function parseTemplate(template: string): Segment[] {
       continue
     }
 
+    const quoted = readApostrophe(template, cursor, inPlural)
+
+    if (quoted) {
+      // A quoted "#" must survive the count substitution, so it is kept in its backslash-escaped form.
+      textBuffer += inPlural ? quoted.text.replace(/#/g, '\\#') : quoted.text
+      cursor = quoted.next
+      continue
+    }
+
     if (template[cursor] === '{') {
       if (textBuffer.length > 0) {
         segments.push({ type: 'text', value: textBuffer })
         textBuffer = ''
       }
 
-      const end = findMatchingBrace(template, cursor)
+      const end = findClosingBrace(template, cursor)
 
       if (end === -1) {
         textBuffer += template.slice(cursor)
@@ -263,7 +294,15 @@ function parseTemplate(template: string): Segment[] {
       const content = template.slice(cursor + 1, end).trim()
 
       if (isFormatBlock(content)) {
-        segments.push(parseFormat(content))
+        const block = parseFormat(content, inPlural)
+
+        if (block) {
+          segments.push(block)
+        } else {
+          // Malformed block: show the source text instead of silently dropping it.
+          const source = template.slice(cursor, end + 1)
+          segments.push({ type: 'text', value: inPlural ? source.replace(/#/g, '\\#') : source })
+        }
       } else {
         const argument = parseArgument(content)
         segments.push(argument ?? { type: 'variable', name: content })
@@ -282,29 +321,6 @@ function parseTemplate(template: string): Segment[] {
   }
 
   return segments
-}
-
-function findMatchingBrace(value: string, start: number) {
-  let depth = 0
-
-  for (let index = start; index < value.length; index += 1) {
-    if (value[index] === '\\') {
-      index += 1
-      continue
-    }
-
-    if (value[index] === '{') {
-      depth += 1
-    } else if (value[index] === '}') {
-      depth -= 1
-
-      if (depth === 0) {
-        return index
-      }
-    }
-  }
-
-  return -1
 }
 
 function isFormatBlock(content: string) {
@@ -329,7 +345,13 @@ function parseArgument(content: string): ArgumentSegment | undefined {
   return style ? { type, value, style } : { type, value }
 }
 
-function parseFormat(content: string): FormatSegment {
+/**
+ * Parses the inside of a plural/select/selectordinal block.
+ *
+ * @param parentInPlural - Whether the block sits inside a plural branch (a select there still sees the outer `#`).
+ * @returns The segment, or `undefined` when the block is malformed (no branches or unparseable trailing text).
+ */
+function parseFormat(content: string, parentInPlural: boolean): FormatSegment | undefined {
   const firstComma = content.indexOf(',')
   const value = firstComma >= 0 ? content.slice(0, firstComma).trim() : ''
   const rest = firstComma >= 0 ? content.slice(firstComma + 1) : ''
@@ -337,15 +359,26 @@ function parseFormat(content: string): FormatSegment {
   const match = trimmedRest.match(/^(plural|select|selectordinal)\b/)
 
   if (!match || !match[1]) {
-    return { type: 'plural', value, options: {} }
+    return undefined
   }
 
   const type = match[1] as FormatSegment['type']
+  const inPlural = type === 'select' ? parentInPlural : true
   let body = trimmedRest.slice(match[0].length).trim()
   if (body.startsWith(',')) {
     body = body.slice(1).trimStart()
   }
-  const options: Record<string, Segment[]> = {}
+
+  let offset: number | undefined
+  const offsetMatch = type === 'plural' ? body.match(/^offset:\s*(\d+)\s*/) : null
+
+  if (offsetMatch) {
+    offset = Number(offsetMatch[1])
+    body = body.slice(offsetMatch[0].length)
+  }
+
+  // Null prototype so values like "constructor" never match inherited properties.
+  const options: Record<string, Segment[]> = Object.create(null)
   const validCategories = new Set(['zero', 'one', 'two', 'few', 'many', 'other'])
   let cursor = 0
 
@@ -374,22 +407,22 @@ function parseFormat(content: string): FormatSegment {
       break
     }
 
-    const end = findMatchingBrace(body, cursor)
+    const end = findClosingBrace(body, cursor)
 
     if (end === -1) {
       break
     }
 
     const optionText = body.slice(cursor + 1, end)
-    options[category] = parseTemplate(optionText)
+    options[category] = parseTemplate(optionText, inPlural)
     cursor = end + 1
   }
 
-  return {
-    type,
-    value,
-    options
+  if (skipWhitespace(body, cursor) < body.length || Object.keys(options).length === 0) {
+    return undefined
   }
+
+  return offset === undefined ? { type, value, options } : { type: 'plural', value, options, offset }
 }
 
 function skipWhitespace(value: string, index: number) {

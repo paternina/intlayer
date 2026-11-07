@@ -12,7 +12,7 @@ This directory contains a progressive set of examples demonstrating how to use i
 
 ## Running Examples
 
-Each example is a self-contained JavaScript file that can be run with Node.js after building the package.
+The `basic/` and `advanced/` examples and `testing/16-validate-messages.js` are self-contained and run with plain Node.js after building the package. The `framework/`, `ssr/` and the other `testing/` examples are illustrative snippets: they need their own dependencies (React, Vue, Svelte, Express, JSX, Jest or Vitest) and are not meant to be run with `node` directly.
 
 First, build the package:
 

@@ -1,4 +1,4 @@
-# intlayer
+# @paternina/intlayer
 
 A lightweight, framework-agnostic internationalization runtime for JavaScript and TypeScript.
 
@@ -7,7 +7,8 @@ A lightweight, framework-agnostic internationalization runtime for JavaScript an
 - Nested translation lookup with object and array support (`users[0].name`)
 - Cached path resolvers (LRU cache prevents memory leaks)
 - Interpolation templates with character escaping (`\\{`, `\\}`)
-- ICU-style plural support with exact matches (`=0`) and locale-aware rules
+- ICU-style plural support with exact matches (`=0`), `offset:` and locale-aware rules
+- ICU apostrophe quoting (`It''s`, `'{'`) alongside backslash escapes
 - ICU number/date/time/duration arguments inside messages (`{price, number, currency}`), with skeletons and named formats
 - Duration formatting (`i18n.duration()`) with an automatic fallback when `Intl.DurationFormat` is unavailable
 - Build-time ICU message validation (`validateMessages`)
@@ -21,7 +22,8 @@ A lightweight, framework-agnostic internationalization runtime for JavaScript an
 - Runtime message merging (`mergeMessages`)
 - Optional missing-key warnings during development (`warnOnMissingKey`)
 - Loader timeout support (`loaderTimeout`) to prevent hangs on slow networks
-- Instance-level caches for memory isolation
+- Instance-level `Intl` formatter caches (parsed-message and path caches are shared and bounded)
+- Zero dependencies, about 5.5 KB min+gzip, tree-shakeable
 
 ## Quick start
 
@@ -61,6 +63,10 @@ console.log(i18n.getDirection()) // 'ltr' or 'rtl'
 - `i18n.number(value, options)`
 - `i18n.date(value, options)`
 - `i18n.relativeTime(value, unit, options)`
+- `i18n.list(value, options)` — format a list (`Intl.ListFormat`)
+- `i18n.compare(a, b, options)` — locale-aware string comparison (`Intl.Collator`)
+- `i18n.loadLocale(locale)` / `i18n.loadLocales(locales)` — preload locales through their loaders
+- `i18n.getLoadedLocales()` / `i18n.getMessages(locale?)` — inspect loaded catalogs
 - `i18n.duration(value, options)` — format a duration
 - `i18n.mergeMessages(messages)` — merge translations at runtime
 - `i18n.has(key)` — check if translation exists
@@ -84,6 +90,7 @@ console.log(i18n.getDirection()) // 'ltr' or 'rtl'
 | `formats` | `CustomFormats` | — | Named `number`/`date`/`time`/`duration` formats usable inside messages |
 | `defaultCurrency` | `string` | `'USD'` | Currency used by the `currency` number style |
 | `timeZone` | `string` | — | Default time zone for `date`/`time` arguments and `i18n.date()` |
+| `onMissingKey` | `(key, locale) => string` | — | Return a custom value for missing keys |
 | `localeMap` | `boolean` | auto-detected | Force `messages` to be read as a locale map (`true`) or a flat catalog (`false`) |
 
 ### Inline number, date and time formatting
@@ -221,7 +228,7 @@ const i18n = createI18n({
   messages: { en: { hello: 'Hello' } }
 })
 
-i18n.t('missing') // console.warn: [intlayer] Missing translation key: "missing"
+i18n.t('missing') // console.warn: [intlayer] Missing translation key: "missing" for locale "en"
 ```
 
 ### Loader timeout
@@ -259,3 +266,9 @@ i18n.has('missing') // false
 More detailed usage and publishing guidance is available in `docs/en.md`.
 
 For Spanish documentation, see `docs/es.md`.
+
+Supported environments, error behaviour, known limitations (for example: the ICU apostrophe-before-brace gotcha) and the 0.x migration notes are at the end of `docs/en.md`. See also [CHANGELOG.md](https://github.com/paternina/intlayer/blob/main/CHANGELOG.md).
+
+## License
+
+MIT

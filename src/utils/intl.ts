@@ -8,6 +8,7 @@ export type IntlFormatOptions =
   | Intl.ListFormatOptions
   | Intl.CollatorOptions
 
+/** Builds a stable cache key from a locale and `Intl` options (option order does not matter). */
 export function buildIntlCacheKey(locale: string, options?: IntlFormatOptions): string {
   if (!options) {
     return locale
@@ -28,6 +29,7 @@ export function buildIntlCacheKey(locale: string, options?: IntlFormatOptions): 
   return parts.join('&')
 }
 
+/** Returns the cached `Intl` formatter for `locale` + `options`, creating and storing it with `create` on a miss. */
 export function getCachedFormatter<T>(
   cache: LRUCache<string, T>,
   locale: string,

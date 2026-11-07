@@ -5,6 +5,7 @@ interface ListNode<K, V> {
   next: ListNode<K, V> | null;
 }
 
+/** Fixed-size least-recently-used cache; reading or writing an entry marks it as most recent. */
 export class LRUCache<K, V> {
   private maxSize: number;
   private cache: Map<K, ListNode<K, V>>;

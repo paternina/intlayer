@@ -1,5 +1,6 @@
 import { isKnownNumberSkeletonToken } from './formats'
 import { durationStyles } from './duration'
+import { findClosingBrace, readApostrophe } from './scan'
 import type { Messages, MessageIssue, ValidateMessagesOptions, ValidationResult } from '../types'
 
 const pluralCategories = new Set(['zero', 'one', 'two', 'few', 'many', 'other'])
@@ -11,29 +12,6 @@ const dateFieldSymbols = /^[GyMLdEehHKkmsSzva]+$/
 
 interface Reporter {
   add: (issue: Omit<MessageIssue, 'key' | 'locale'>) => void
-}
-
-function findClosingBrace(value: string, start: number): number {
-  let depth = 0
-
-  for (let index = start; index < value.length; index += 1) {
-    if (value[index] === '\\') {
-      index += 1
-      continue
-    }
-
-    if (value[index] === '{') {
-      depth += 1
-    } else if (value[index] === '}') {
-      depth -= 1
-
-      if (depth === 0) {
-        return index
-      }
-    }
-  }
-
-  return -1
 }
 
 function checkNumberStyle(style: string, offset: number, report: Reporter, formats: ValidateMessagesOptions['formats']) {
@@ -136,6 +114,21 @@ function validateBlockBody(
   const seen = new Set<string>()
   let cursor = 0
   let count = 0
+
+  if (type === 'plural') {
+    const offsetMatch = body.match(/^offset:\s*(\d+)\s*/)
+
+    if (offsetMatch) {
+      cursor = offsetMatch[0].length
+    } else if (body.startsWith('offset:')) {
+      report.add({
+        code: 'invalid-branch',
+        message: 'Invalid plural offset. Expected "offset:" followed by a non-negative integer.',
+        offset: bodyOffset
+      })
+      return
+    }
+  }
 
   while (cursor < body.length) {
     while (cursor < body.length && /\s/.test(body[cursor] ?? '')) {
@@ -352,10 +345,17 @@ function walk(
       continue
     }
 
+    const quoted = readApostrophe(template, cursor, insideBlock)
+
+    if (quoted) {
+      cursor = quoted.next
+      continue
+    }
+
     if (char === '}') {
       report.add({
         code: 'unbalanced-brace',
-        message: 'Unexpected "}". Escape it as "\\}" to use a literal closing brace.',
+        message: 'Unexpected "}". Escape it as "\\}" or quote it as "\'}\'" to use a literal closing brace.',
         offset: baseOffset + cursor
       })
       return
@@ -390,6 +390,13 @@ function walk(
   }
 }
 
+/**
+ * Checks the ICU syntax of one message string.
+ *
+ * @param message - The message to check.
+ * @param options - Named formats to accept and the `strictHash` switch.
+ * @returns The issues found (empty when the message is valid).
+ */
 export function validateMessage(message: string, options: ValidateMessagesOptions = {}): MessageIssue[] {
   const issues: MessageIssue[] = []
   const report: Reporter = {
@@ -445,6 +452,16 @@ function isLocaleMap(value: Messages): boolean {
   )
 }
 
+/**
+ * Checks every message in a flat catalog or a locale map. Intended for CI or build steps.
+ *
+ * @param messages - A catalog, or a map of locale to catalog.
+ * @param options - Named formats to accept and the `strictHash` switch.
+ * @returns `valid` plus the issues, each tagged with its dotted `key` (and `locale` for locale maps).
+ *
+ * @example
+ * validateMessages({ en: { items: '{n, plural, one {# item}}' } }).issues[0].code // "missing-other"
+ */
 export function validateMessages(
   messages: Messages | Record<string, Messages>,
   options: ValidateMessagesOptions = {}
@@ -466,6 +483,12 @@ export function validateMessages(
   return { valid: issues.length === 0, issues }
 }
 
+/**
+ * Renders issues as one `[intlayer] locale:key (code) message` line each.
+ *
+ * @param issues - Issues from {@link validateMessages}.
+ * @returns A newline-separated report.
+ */
 export function formatIssues(issues: readonly MessageIssue[]): string {
   return issues
     .map((issue) => {
@@ -475,6 +498,13 @@ export function formatIssues(issues: readonly MessageIssue[]): string {
     .join('\n')
 }
 
+/**
+ * Like {@link validateMessages}, but throws when any issue is found.
+ *
+ * @param messages - A catalog, or a map of locale to catalog.
+ * @param options - Named formats to accept and the `strictHash` switch.
+ * @throws {Error} With a {@link formatIssues} report when the messages are invalid.
+ */
 export function assertValidMessages(
   messages: Messages | Record<string, Messages>,
   options: ValidateMessagesOptions = {}

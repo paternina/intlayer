@@ -63,7 +63,7 @@ console.log(isRTL('ar'))
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `locale` | `string` | — | Active locale |
-| `fallbackLocale` | `string \| string[]` | `locale` | Fallback chain (deduped, base locale auto-appended) |
+| `fallbackLocale` | `string \| string[]` | `locale` | Fallback chain (deduped, base locale auto-appended). After `setLocale('es-MX')`, `es` is tried right after `es-MX` unless your list already orders it |
 | `messages` | `Messages \| Record<string, Messages>` | — | Initial translations |
 | `loaders` | `Record<string, () => Promise<Messages>>` | — | Lazy locale loaders |
 | `warnOnMissingKey` | `boolean` | `false` | Log missing keys to console (dev) |
@@ -123,6 +123,8 @@ const i18n = createI18n({
 console.log(i18n.t('items', { count: 0 })) // No items
 console.log(i18n.t('items', { count: 1 })) // A single item
 console.log(i18n.t('items', { count: 5 })) // 5 items
+// `#` is formatted with the locale's number format: 1500 renders as "1,500" in en and "1.500" in de.
+// Use \# for a literal "#".
 ```
 
 Plural rules are automatically applied based on the locale where the translation is found (not the active locale):
@@ -142,6 +144,29 @@ console.log(i18n.t('items', { count: 1 })) // 1 товар
 console.log(i18n.t('items', { count: 2 })) // 2 товара
 console.log(i18n.t('items', { count: 5 })) // 5 товаров
 ```
+
+### Plural offset
+
+`offset:N` subtracts `N` from the count before choosing a category and before rendering `#`. Exact matches (`=0`, `=1`) still compare against the raw count:
+
+```ts
+const msg = '{n, plural, offset:1 =0 {Nobody} =1 {Just you} one {You and # other} other {You and # others}}'
+// n = 0 → "Nobody", n = 1 → "Just you", n = 2 → "You and 1 other", n = 5 → "You and 4 others"
+```
+
+### Quoting and escaping literal text
+
+Both ICU apostrophe quoting and backslash escapes are supported:
+
+| Write | Renders |
+|-------|---------|
+| `It's` | `It's` (a lone apostrophe is literal) |
+| `It''s` | `It's` |
+| `'{'name'}'` | `{name}` |
+| `\{name\}` | `{name}` |
+| `{n, plural, other {'#' is #}}` | `# is 3` (when `n` is 3) |
+
+An apostrophe directly before `{` or `}` opens a quoted section that ends at the next single `'`. To put an apostrophe right before a placeholder, double it: `l''{name}`.
 
 ### Select and ordinal select
 
@@ -738,3 +763,40 @@ Browser global example using the IIFE build:
   console.log(i18n.t('hello'))
 </script>
 ```
+
+## Supported environments
+
+- Node.js 18 or newer (the built package is smoke-tested on 18, 20, 22 and 24 in CI).
+- Evergreen browsers, via ESM or the `dist/index.global.js` IIFE bundle (`Intlayer` global).
+- It relies on the runtime's `Intl` (`NumberFormat`, `DateTimeFormat`, `PluralRules`, `ListFormat`, `RelativeTimeFormat`, `Collator`). `Intl.DurationFormat` is used when available.
+- Zero runtime dependencies. About 5.5 KB min+gzip for `createI18n`; `isRTL` and `validateMessages` can be imported on their own and tree-shake.
+
+## Errors
+
+- `createI18n` throws a `TypeError` when `locale` is missing or empty, and a `RangeError` when it is not a valid BCP 47 tag. Underscore forms such as `en_US` are accepted.
+- `setLocale` rejects with the same `RangeError` for an invalid tag. A loader that fails or times out does not reject: the locale stays unchanged and a warning is logged.
+- Concurrent `setLocale` calls resolve to the most recently requested locale, regardless of the order in which loaders finish.
+- A subscriber that throws is logged with `console.error` and does not stop other subscribers.
+- `i18n.date()` throws a `RangeError` for an invalid date; inline `{value, date}` arguments render the raw value instead.
+
+## Known limitations
+
+- **ICU quoting gotcha:** an apostrophe directly before `{` or `}` starts a quoted section, as in ICU. To write `l'` before a placeholder, double it: `l''{name}`.
+- `offset:` is supported on `plural` only (not `selectordinal`).
+- A malformed plural/select block is rendered as its source text (like an unclosed `{`), never thrown. A well-formed block with no matching branch and no `other` renders nothing. Run `validateMessages` in CI to catch both.
+- `mergeMessages` ignores the keys `__proto__`, `constructor` and `prototype`.
+- Parsed messages and path resolvers are cached once per process (10,000 entries each, shared by all instances). Catalogs cycling through more distinct messages than that keep working but re-parse the least recently used ones.
+
+## Migrating from 0.x
+
+1.0.0 keeps the 0.7 public API. Behaviour changes to be aware of:
+
+- `#` in plural branches is now locale-formatted (`1,500` instead of `1500`).
+- After `setLocale('es-MX')`, the base language (`es`) is tried before the fallback list.
+- Invalid or empty `locale` values now throw (constructor) or reject (`setLocale`) instead of being accepted silently.
+- `{x, select, ...}` no longer throws when `x` is `constructor`, `toString` and similar.
+- Overlapping `setLocale` calls: the latest call wins.
+- `getFallbackLocale()` returns a copy.
+- ICU apostrophe quoting is now interpreted (`''` renders `'`; `'{'` renders `{`). Backslash escapes still work.
+- `offset:` is supported in `plural` blocks.
+- A malformed plural/select block renders its source text instead of an empty string.

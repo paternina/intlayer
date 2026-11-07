@@ -10,9 +10,11 @@ import { buildIntlCacheKey } from '../utils/intl'
 const localeKey = /^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/i
 const normalizeLocaleName = (locale: string) => locale.trim().replace(/_/g, '-').toLowerCase()
 
+/** Returns a new catalog with `source` merged into `target`; nested catalogs merge recursively, other values are replaced. */
 function deepMerge(target: Messages, source: Messages): Messages {
   const result: Messages = { ...target }
   for (const key of Object.keys(source)) {
+    if (unsafeKeys.has(key)) continue
     const sourceValue = source[key]
     const targetValue = result[key]
     if (sourceValue && typeof sourceValue === 'object' && !Array.isArray(sourceValue) && targetValue && typeof targetValue === 'object' && !Array.isArray(targetValue)) {
@@ -24,6 +26,10 @@ function deepMerge(target: Messages, source: Messages): Messages {
   return result
 }
 
+/** Keys skipped by `deepMerge` to avoid prototype pollution. */
+const unsafeKeys = new Set(['__proto__', 'constructor', 'prototype'])
+
+/** Dedupes the fallback list, drops the primary locale, and appends the primary's base language when absent. */
 function normalizeFallback(raw: string | string[], primary: string): string[] {
   const items = Array.isArray(raw) ? [...raw] : [raw]
   const primaryLower = normalizeLocaleName(primary)
@@ -47,7 +53,37 @@ function normalizeFallback(raw: string | string[], primary: string): string[] {
   return result.length > 0 ? result : [primary]
 }
 
+/** Throws a descriptive error unless `locale` is a non-empty, well-formed BCP 47 tag. */
+function assertValidLocale(locale: unknown): asserts locale is string {
+  if (typeof locale !== 'string' || !locale.trim()) {
+    throw new TypeError('[intlayer] "locale" must be a non-empty string such as "en" or "es-MX".')
+  }
+
+  try {
+    Intl.getCanonicalLocales(locale.trim().replace(/_/g, '-'))
+  } catch {
+    throw new RangeError(`[intlayer] Invalid locale "${locale}". Use a BCP 47 tag such as "en" or "es-MX".`)
+  }
+}
+
+/**
+ * Creates a translation instance with its own locale state, message store and `Intl` formatter caches.
+ *
+ * @typeParam T - Optional union of message keys for typed `t()` / `has()` and typed catalogs.
+ * @param options - Locale, messages, loaders and formatting configuration.
+ * @returns A configured {@link I18nInstance}.
+ * @throws {TypeError} If `options.locale` is missing or not a non-empty string.
+ * @throws {RangeError} If `options.locale` is not a valid BCP 47 tag.
+ *
+ * @example
+ * const i18n = createI18n({
+ *   locale: 'en',
+ *   messages: { en: { hello: 'Hello {name}' } }
+ * })
+ * i18n.t('hello', { name: 'Ana' }) // "Hello Ana"
+ */
 export function createI18n<T extends string = string>(options: I18nOptions<T>): I18nInstance<T> {
+  assertValidLocale(options?.locale)
   const locale = options.locale
   const fallbackLocaleRaw = options.fallbackLocale ?? locale
   const fallbackLocale = normalizeFallback(fallbackLocaleRaw, locale)
@@ -62,6 +98,7 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
   const explicitLocaleMap = options.localeMap
   let currentLocale = locale
   let destroyed = false
+  let localeRequest = 0
 
   const knownLocales = new Set<string>([
     normalizeLocaleName(locale),
@@ -191,16 +228,17 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
     return undefined
   }
 
-  function resolveText(key: string, localeToUse: string): string | undefined {
-    const messages = getMessagesFor(localeToUse)
-    const result = resolve(key, messages)
+  // Lookup order: active locale, then its base language (unless the fallback list already orders it), then the fallbacks.
+  function buildChain(active: string): string[] {
+    const base = active.split(/[-_]/)[0] ?? active
+    const baseKey = normalizeLocaleName(base)
+    const needsBase =
+      baseKey !== normalizeLocaleName(active) && !fallbackLocale.some((item) => normalizeLocaleName(item) === baseKey)
 
-    if (typeof result === 'string') {
-      return result
-    }
-
-    return undefined
+    return needsBase ? [active, base, ...fallbackLocale] : [active, ...fallbackLocale]
   }
+
+  let chain = buildChain(currentLocale)
 
   function resolveTextWithLocale(key: string, localeToUse: string): { text?: string; locale: string } {
     const messages = getMessagesFor(localeToUse)
@@ -272,7 +310,11 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
     }
 
     for (const listener of Array.from(listeners)) {
-      listener(currentLocale)
+      try {
+        listener(currentLocale)
+      } catch (error) {
+        console.error('[intlayer] A subscriber threw an error:', error)
+      }
     }
   }
 
@@ -285,11 +327,10 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
       values = valuesOrDefault ?? {}
     }
 
-    const locales = [currentLocale, ...fallbackLocale]
     let source: string | undefined
     let sourceLocale = currentLocale
 
-    for (const locale of locales) {
+    for (const locale of chain) {
       const result = resolveTextWithLocale(key, locale)
       if (typeof result.text === 'string') {
         source = result.text
@@ -316,8 +357,7 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
   }
 
   function hasTranslation(key: T): boolean {
-    const locales = [currentLocale, ...fallbackLocale]
-    for (const locale of locales) {
+    for (const locale of chain) {
       const messages = getMessagesFor(locale)
       const result = resolve(key, messages)
       if (typeof result === 'string') {
@@ -328,9 +368,8 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
   }
 
   async function setLocale(newLocale: string): Promise<void> {
-    if (newLocale === currentLocale) {
-      return
-    }
+    assertValidLocale(newLocale)
+    const request = ++localeRequest
 
     if (loaders[newLocale] && !getMessagesFor(newLocale)) {
       const loadedLocale = await loadLocale(newLocale)
@@ -339,7 +378,13 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
       }
     }
 
+    // A newer setLocale call supersedes this one, whatever order loaders resolve in.
+    if (request !== localeRequest || newLocale === currentLocale) {
+      return
+    }
+
     currentLocale = newLocale
+    chain = buildChain(newLocale)
     notify()
   }
 
@@ -348,7 +393,7 @@ export function createI18n<T extends string = string>(options: I18nOptions<T>): 
   }
 
   function getFallbackLocale() {
-    return fallbackLocale
+    return [...fallbackLocale]
   }
 
   function subscribe(listener: (locale: string) => void) {

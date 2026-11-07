@@ -1,26 +1,52 @@
 {
   "name": "@paternina/intlayer",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "type": "module",
   "private": false,
   "description": "A tiny universal internationalization engine for JavaScript and TypeScript.",
+  "keywords": [
+    "i18n",
+    "internationalization",
+    "localization",
+    "icu",
+    "plural",
+    "intl",
+    "typescript"
+  ],
   "main": "dist/index.cjs",
   "module": "dist/index.js",
-  "browser": "dist/index.global.js",
   "types": "dist/index.d.ts",
+  "unpkg": "dist/index.global.js",
+  "jsdelivr": "dist/index.global.js",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    }
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
   "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/paternina/intlayer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/paternina/intlayer/issues"
   },
   "homepage": "https://github.com/paternina/intlayer#readme",
   "license": "MIT",
@@ -28,7 +54,9 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:dist": "node scripts/smoke.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build && npm run test:dist"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

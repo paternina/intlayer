@@ -80,7 +80,7 @@ Soporta lookup de claves anidadas (incluyendo notación de arreglos) y plantilla
 
 ### Rutas de arreglos y escapado
 
-Puedes usar índices de arreglos para resolver elementos, y escapar caracteres reservados (`{`, `}`, `#`) anteponiendo una barra invertida (`\\`).
+Puedes usar índices de arreglos para resolver elementos, y escapar caracteres reservados (`{`, `}`, `#`) anteponiendo una barra invertida (`\\`) o con comillas simples de ICU: `It''s` produce `It's` y `'{'name'}'` produce `{name}`. En un plural, `offset:1` resta 1 al conteo antes de elegir la categoría y de mostrar `#` (`=N` compara con el valor original).
 
 ```ts
 const i18n = createI18n({
@@ -671,3 +671,39 @@ Ejemplo global para navegador usando la compilación IIFE:
   console.log(i18n.t('hello'))
 </script>
 ```
+
+## Entornos soportados
+
+- Node.js 18 o superior (el paquete compilado se prueba en 18, 20, 22 y 24 en CI).
+- Navegadores modernos, mediante ESM o el bundle IIFE `dist/index.global.js` (global `Intlayer`).
+- Usa el `Intl` del entorno. `Intl.DurationFormat` se usa cuando está disponible.
+- Sin dependencias en runtime. Unos 5,5 KB min+gzip para `createI18n`.
+
+## Errores
+
+- `createI18n` lanza `TypeError` si `locale` falta o está vacío, y `RangeError` si no es una etiqueta BCP 47 válida (`en_US` se acepta).
+- `setLocale` rechaza con `RangeError` ante una etiqueta inválida. Si un loader falla o expira, el locale no cambia y se registra una advertencia.
+- Varias llamadas simultáneas a `setLocale` terminan en el último locale solicitado.
+- Un suscriptor que lanza un error se registra con `console.error` y no impide que los demás se ejecuten.
+
+## Limitaciones conocidas
+
+- Un apóstrofo justo antes de `{` o `}` abre una sección entrecomillada (como en ICU). Para escribir `l'` antes de un placeholder, duplícalo: `l''{name}`.
+- `offset:` está soportado solo en `plural` (no en `selectordinal`).
+- Un bloque plural/select mal formado se muestra como su texto fuente (como una `{` sin cerrar) y nunca lanza; un bloque válido sin rama coincidente ni `other` no muestra nada. Usa `validateMessages` en CI.
+- Los mensajes parseados y los resolvedores de ruta se cachean una vez por proceso (10.000 entradas cada uno, compartidos entre instancias).
+- `mergeMessages` ignora las claves `__proto__`, `constructor` y `prototype`.
+
+## Migración desde 0.x
+
+La API pública de 0.7 se mantiene. Cambios de comportamiento en 1.0.0:
+
+- `#` en plurales se formatea según el locale (`1,500` en lugar de `1500`).
+- Tras `setLocale('es-MX')`, se prueba `es` antes de la lista de fallback.
+- Un `locale` inválido o vacío ahora lanza (constructor) o rechaza (`setLocale`).
+- `select` ya no falla con valores como `constructor` o `toString`.
+- Ante llamadas solapadas a `setLocale`, gana la última.
+- `getFallbackLocale()` devuelve una copia.
+- Las comillas simples de ICU ahora se interpretan (`''` produce `'`; `'{'` produce `{`).
+- `offset:` está soportado en bloques `plural`.
+- Un bloque plural/select mal formado muestra su texto fuente en lugar de una cadena vacía.

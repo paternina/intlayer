@@ -91,10 +91,12 @@ function parseNumberSkeletonToken(token: string): Intl.NumberFormatOptions | und
   }
 }
 
+/** Tells whether a single `::` number skeleton token (e.g. `percent`, `currency/EUR`, `.00`) is supported. */
 export function isKnownNumberSkeletonToken(token: string): boolean {
   return parseNumberSkeletonToken(token) !== undefined
 }
 
+/** Converts a number skeleton (the text after `::`) into `Intl.NumberFormat` options; unknown tokens are ignored. */
 export function parseNumberSkeleton(skeleton: string): Intl.NumberFormatOptions {
   const cached = numberStyleCache.get(skeleton)
 
@@ -120,6 +122,7 @@ export function parseNumberSkeleton(skeleton: string): Intl.NumberFormatOptions 
   return options
 }
 
+/** Converts a date/time skeleton (the text after `::`, e.g. `yyyyMMdd`) into `Intl.DateTimeFormat` options. */
 export function parseDateSkeleton(skeleton: string): Intl.DateTimeFormatOptions {
   const cached = dateSkeletonCache.get(skeleton)
 
@@ -154,6 +157,7 @@ export function parseDateSkeleton(skeleton: string): Intl.DateTimeFormatOptions 
   return options
 }
 
+/** Resolves a message's number style (custom name, `::` skeleton, `integer`, `percent`, `currency`) to `Intl` options. */
 export function resolveNumberOptions(
   style: string | undefined,
   formats: CustomFormats | undefined,
@@ -185,6 +189,7 @@ export function resolveNumberOptions(
   }
 }
 
+/** Resolves a message's date or time style (custom name, `::` skeleton, short/medium/long/full) to `Intl` options; defaults to `medium`. */
 export function resolveDateOptions(
   style: string | undefined,
   formats: CustomFormats | undefined,
